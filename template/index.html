@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Cyber Assistant v4.0</title>
+  <style>
+    /* Reset e estilo base */
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background-color: #121212;
+      color: #e0e0e0;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      display: flex; flex-direction: column; min-height: 100vh;
+    }
+    header {
+      background-color: #1e1e1e;
+      padding: 20px;
+      text-align: center;
+      font-size: 24px;
+      font-weight: bold;
+      color: #00ff00;
+    }
+    .nav-tabs {
+      display: flex;
+      justify-content: center;
+      background-color: #1e1e1e;
+    }
+    .nav-tabs button {
+      background: none;
+      border: none;
+      padding: 15px 20px;
+      cursor: pointer;
+      color: #e0e0e0;
+      font-size: 16px;
+    }
+    .nav-tabs button.active {
+      background-color: #333;
+      color: #00ff00;
+      border-bottom: 2px solid #00ff00;
+    }
+    .container {
+      flex: 1;
+      max-width: 800px;
+      margin: 20px auto;
+      padding: 10px;
+    }
+    .chat-window {
+      background-color: #1e1e1e;
+      border-radius: 8px;
+      padding: 20px;
+      min-height: 400px;
+      max-height: 600px;
+      overflow-y: auto;
+      margin-bottom: 10px;
+    }
+    .message { margin-bottom: 15px; display: flex; }
+    .message.user .bubble {
+      background-color: #2a2a2a;
+      color: #fff;
+      align-self: flex-end;
+      border-radius: 15px 15px 0 15px;
+    }
+    .message.ai .bubble {
+      background-color: #00ff00;
+      color: #000;
+      align-self: flex-start;
+      border-radius: 15px 15px 15px 0;
+    }
+    .bubble {
+      padding: 10px 15px;
+      max-width: 70%;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+    .input-area { display: flex; gap: 10px; }
+    .input-area input[type="text"] {
+      flex: 1;
+      padding: 10px;
+      border: 1px solid #333;
+      border-radius: 5px;
+      background-color: #2a2a2a;
+      color: #fff;
+    }
+    .input-area button {
+      padding: 10px 20px;
+      border: none;
+      background-color: #00ff00;
+      color: #000;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    .form-options {
+      margin-top: 10px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      font-size: 14px;
+    }
+    .form-options label { margin-right: 10px; }
+    /* Estilo para as opções de investigação */
+    #investigationOptions { display: none; }
+    /* Spinner de carregamento */
+    #loadingSpinner {
+      display: none;
+      margin: 10px auto;
+      border: 6px solid #f3f3f3;
+      border-top: 6px solid #00ff00;
+      border-radius: 50%;
+      width: 30px;
+      height: 30px;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    footer {
+      text-align: center;
+      padding: 10px;
+      font-size: 12px;
+      background-color: #1e1e1e;
+      color: #888;
+    }
+  </style>
+</head>
+<body>
+  <header>Cyber Assistant v4.0</header>
+  <div class="nav-tabs">
+    <!-- Apenas uma aba para o chat integrado -->
+    <button class="tab-button active" data-tab="chatTab">Chat</button>
+  </div>
+  <div class="container">
+    <div id="chatTab" class="tab-content">
+      <div class="chat-window" id="chatWindow"></div>
+      <!-- Spinner de carregamento -->
+      <div id="loadingSpinner"></div>
+      <form id="chatForm">
+        <div class="input-area">
+          <input type="text" id="chatInput" name="user_input" placeholder="Digite sua mensagem ou URL...">
+          <button type="submit">Enviar</button>
+        </div>
+        <div class="form-options">
+          <label for="mode">Modo:</label>
+          <select id="mode" name="mode">
+            <option value="Chat">Chat</option>
+            <option value="Investigação">Investigação</option>
+            <option value="Metadados">Metadados</option>
+          </select>
+          <label for="language">Idioma:</label>
+          <select id="language" name="language">
+            <option value="Português">Português</option>
+            <option value="English">English</option>
+            <option value="Español">Español</option>
+            <option value="Français">Français</option>
+            <option value="Deutsch">Deutsch</option>
+          </select>
+          <label for="style">Estilo:</label>
+          <select id="style" name="style">
+            <option value="Técnico">Técnico</option>
+            <option value="Livre">Livre</option>
+          </select>
+        </div>
+        <!-- Opções adicionais para investigação -->
+        <div class="form-options" id="investigationOptions">
+          <label for="sites_meta">Meta de sites:</label>
+          <input type="number" id="sites_meta" name="sites_meta" value="5" style="width: 60px;">
+          <label for="investigation_focus">Foco (opcional):</label>
+          <input type="text" id="investigation_focus" name="investigation_focus" placeholder="Ex: phishing, malware...">
+          <label>
+            <input type="checkbox" id="search_news" name="search_news"> Ativar Notícias
+          </label>
+          <label>
+            <input type="checkbox" id="search_leaked_data" name="search_leaked_data"> Ativar Dados Vazados
+          </label>
+        </div>
+      </form>
+    </div>
+  </div>
+  <footer>© 2025 Cyber Assistant</footer>
+  
+  <script>
+    // Exibe ou oculta as opções de investigação conforme o modo selecionado
+    document.getElementById("mode").addEventListener("change", function() {
+      const mode = this.value;
+      const invOptions = document.getElementById("investigationOptions");
+      if(mode === "Investigação") {
+        invOptions.style.display = "flex";
+      } else {
+        invOptions.style.display = "none";
+      }
+    });
+    
+    // Função para adicionar mensagem (usa innerHTML para renderizar HTML)
+    function appendMessage(windowId, sender, message) {
+      const windowElement = document.getElementById(windowId);
+      const messageDiv = document.createElement('div');
+      messageDiv.className = `message ${sender}`;
+      const bubbleDiv = document.createElement('div');
+      bubbleDiv.className = 'bubble';
+      bubbleDiv.innerHTML = message;
+      messageDiv.appendChild(bubbleDiv);
+      windowElement.appendChild(messageDiv);
+      windowElement.scrollTop = windowElement.scrollHeight;
+    }
+    
+    // Exibe o spinner de carregamento
+    function showSpinner() {
+      document.getElementById("loadingSpinner").style.display = "block";
+    }
+    
+    // Oculta o spinner de carregamento
+    function hideSpinner() {
+      document.getElementById("loadingSpinner").style.display = "none";
+    }
+    
+    // Envio do formulário
+    document.getElementById("chatForm").addEventListener("submit", function(e) {
+      e.preventDefault();
+      const inputField = document.getElementById("chatInput");
+      const message = inputField.value.trim();
+      if(!message) return;
+      appendMessage("chatWindow", "user", message);
+      inputField.value = "";
+      
+      const formData = new FormData();
+      formData.append('user_input', message);
+      formData.append('mode', document.getElementById("mode").value);
+      formData.append('language', document.getElementById("language").value);
+      formData.append('style', document.getElementById("style").value);
+      // Inclui as opções de investigação, se existirem
+      formData.append('sites_meta', document.getElementById("sites_meta").value);
+      formData.append('investigation_focus', document.getElementById("investigation_focus").value);
+      formData.append('search_news', document.getElementById("search_news").checked);
+      formData.append('search_leaked_data', document.getElementById("search_leaked_data").checked);
+      
+      showSpinner();
+      fetch('/ask', { method: 'POST', body: formData })
+      .then(res => res.json())
+      .then(data => {
+        hideSpinner();
+        appendMessage("chatWindow", "ai", data.response || "Erro: " + data.error);
+      })
+      .catch(err => {
+        hideSpinner();
+        appendMessage("chatWindow", "ai", "Erro na requisição: " + err);
+      });
+    });
+  </script>
+</body>
+</html>
