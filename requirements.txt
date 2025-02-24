@@ -4,7 +4,7 @@ requests==2.28.2
 psutil==5.9.5
 cachetools==5.3.1
 emoji==2.2.0
-llama-cpp-python==0.1.77
+llama-cpp-python==0.1.76
 huggingface_hub==0.14.1
 duckduckgo_search==2.8.0
 Pillow==9.5.0
