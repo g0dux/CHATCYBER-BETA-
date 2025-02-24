@@ -7,36 +7,44 @@
     /* Reset e estilo base */
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
-      background-color: #121212;
-      color: #e0e0e0;
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      display: flex; flex-direction: column; min-height: 100vh;
+      background-color: #1e1e1e;
+      color: #d1d5db;
+      font-family: 'Inter', sans-serif;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
     }
     header {
-      background-color: #1e1e1e;
+      background-color: #111827;
+      color: #fff;
       padding: 20px;
       text-align: center;
       font-size: 24px;
-      font-weight: bold;
-      color: #00ff00;
+      font-weight: 600;
+      border-bottom: 1px solid #374151;
     }
     .nav-tabs {
       display: flex;
-      justify-content: center;
-      background-color: #1e1e1e;
+      background-color: #1e293b;
+      border-bottom: 1px solid #374151;
     }
     .nav-tabs button {
+      flex: 1;
+      padding: 15px 20px;
       background: none;
       border: none;
-      padding: 15px 20px;
-      cursor: pointer;
-      color: #e0e0e0;
+      color: #9ca3af;
       font-size: 16px;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+    .nav-tabs button:hover {
+      background-color: #27303f;
     }
     .nav-tabs button.active {
-      background-color: #333;
-      color: #00ff00;
-      border-bottom: 2px solid #00ff00;
+      background-color: #374151;
+      color: #fff;
+      border-bottom: 2px solid #3b82f6;
     }
     .container {
       flex: 1;
@@ -45,49 +53,67 @@
       padding: 10px;
     }
     .chat-window {
-      background-color: #1e1e1e;
+      background-color: #1f2937;
       border-radius: 8px;
       padding: 20px;
-      min-height: 400px;
-      max-height: 600px;
+      height: 500px;
       overflow-y: auto;
       margin-bottom: 10px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
     }
-    .message { margin-bottom: 15px; display: flex; }
-    .message.user .bubble {
-      background-color: #2a2a2a;
-      color: #fff;
-      align-self: flex-end;
-      border-radius: 15px 15px 0 15px;
+    .message {
+      margin-bottom: 15px;
+      display: flex;
     }
-    .message.ai .bubble {
-      background-color: #00ff00;
-      color: #000;
-      align-self: flex-start;
-      border-radius: 15px 15px 15px 0;
+    .message.user {
+      justify-content: flex-end;
+    }
+    .message.ai {
+      justify-content: flex-start;
     }
     .bubble {
       padding: 10px 15px;
+      border-radius: 12px;
       max-width: 70%;
-      white-space: pre-wrap;
       word-wrap: break-word;
+      font-size: 16px;
+      line-height: 1.5;
     }
-    .input-area { display: flex; gap: 10px; }
+    .message.user .bubble {
+      background-color: #3b82f6;
+      color: #fff;
+      border-radius: 12px 12px 0 12px;
+    }
+    .message.ai .bubble {
+      background-color: #374151;
+      color: #d1d5db;
+      border-radius: 12px 12px 12px 0;
+    }
+    .input-area {
+      display: flex;
+      gap: 10px;
+    }
     .input-area input[type="text"] {
       flex: 1;
-      padding: 10px;
-      border: 1px solid #333;
+      padding: 12px;
+      border: 1px solid #374151;
       border-radius: 5px;
-      background-color: #2a2a2a;
-      color: #fff;
+      background-color: #1f2937;
+      color: #d1d5db;
+      font-size: 16px;
     }
     .input-area button {
-      padding: 10px 20px;
+      padding: 12px 20px;
       border: none;
-      background-color: #00ff00;
-      color: #000;
+      background-color: #3b82f6;
+      color: #fff;
       border-radius: 5px;
       cursor: pointer;
+      font-size: 16px;
+      transition: background-color 0.2s;
+    }
+    .input-area button:hover {
+      background-color: #2563eb;
     }
     .form-options {
       margin-top: 10px;
@@ -96,16 +122,19 @@
       gap: 10px;
       align-items: center;
       font-size: 14px;
+      color: #9ca3af;
     }
-    .form-options label { margin-right: 10px; }
-    /* Estilo para as opções de investigação */
+    .form-options label {
+      margin-right: 10px;
+    }
+    /* Opções de investigação (ocultas por padrão) */
     #investigationOptions { display: none; }
     /* Spinner de carregamento */
     #loadingSpinner {
       display: none;
       margin: 10px auto;
       border: 6px solid #f3f3f3;
-      border-top: 6px solid #00ff00;
+      border-top: 6px solid #3b82f6;
       border-radius: 50%;
       width: 30px;
       height: 30px;
@@ -116,18 +145,87 @@
       100% { transform: rotate(360deg); }
     }
     footer {
+      background-color: #111827;
+      color: #9ca3af;
       text-align: center;
       padding: 10px;
       font-size: 12px;
-      background-color: #1e1e1e;
-      color: #888;
+      border-top: 1px solid #374151;
+    }
+    
+    /* Estilos para o modal de configurações */
+    #configModal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.6);
+      justify-content: center;
+      align-items: center;
+      z-index: 1000;
+    }
+    #configModal .modal-content {
+      background: #1e1e1e;
+      padding: 20px;
+      border-radius: 8px;
+      max-width: 500px;
+      width: 90%;
+      color: #d1d5db;
+    }
+    #configModal .modal-content h2 {
+      margin-bottom: 15px;
+    }
+    #configModal .modal-content form > div {
+      margin-bottom: 10px;
+    }
+    #configModal label {
+      display: block;
+      margin-bottom: 4px;
+    }
+    #configModal input[type="number"],
+    #configModal input[type="color"] {
+      width: 100%;
+      padding: 6px;
+      border: 1px solid #374151;
+      border-radius: 4px;
+      background-color: #1f2937;
+      color: #d1d5db;
+    }
+    #configModal button {
+      padding: 8px 12px;
+      border: none;
+      background-color: #3b82f6;
+      color: #fff;
+      border-radius: 4px;
+      cursor: pointer;
+      margin-right: 10px;
+    }
+    
+    /* Estilo para o botão de configurações flutuante */
+    #configToggleButton {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background-color: #3b82f6;
+      color: #fff;
+      border: none;
+      border-radius: 50%;
+      width: 50px;
+      height: 50px;
+      cursor: pointer;
+      font-size: 24px;
+      z-index: 1001;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
     }
   </style>
+  <!-- Estilo personalizado atualizado via configurações -->
+  <style id="customStyles"></style>
 </head>
 <body>
   <header>Cyber Assistant v4.0</header>
   <div class="nav-tabs">
-    <!-- Apenas uma aba para o chat integrado -->
     <button class="tab-button active" data-tab="chatTab">Chat</button>
   </div>
   <div class="container">
@@ -179,19 +277,67 @@
   </div>
   <footer>© 2025 Cyber Assistant</footer>
   
+  <!-- Botão flutuante para abrir as configurações -->
+  <button id="configToggleButton">⚙️</button>
+  
+  <!-- Modal de configurações -->
+  <div id="configModal">
+    <div class="modal-content">
+      <h2>Configurações</h2>
+      <form id="configForm">
+        <div>
+          <label for="inputFontSize">Tamanho da fonte da entrada de texto (px):</label>
+          <input type="number" id="inputFontSize" name="inputFontSize" value="16" min="10" max="30">
+        </div>
+        <div>
+          <label for="inputWidth">Largura da entrada de texto (px):</label>
+          <input type="number" id="inputWidth" name="inputWidth" value="300" min="100" max="800">
+        </div>
+        <div>
+          <label for="chatWindowHeight">Altura da janela de chat (px):</label>
+          <input type="number" id="chatWindowHeight" name="chatWindowHeight" value="500" min="300" max="800">
+        </div>
+        <div>
+          <label for="chatWindowWidth">Largura da janela de chat (px):</label>
+          <input type="number" id="chatWindowWidth" name="chatWindowWidth" value="800" min="400" max="1200">
+        </div>
+        <div>
+          <label for="bodyBgColor">Cor de fundo do Body:</label>
+          <input type="color" id="bodyBgColor" name="bodyBgColor" value="#1e1e1e">
+        </div>
+        <div>
+          <label for="chatBgColor">Cor de fundo da janela de chat:</label>
+          <input type="color" id="chatBgColor" name="chatBgColor" value="#1f2937">
+        </div>
+        <div>
+          <label for="chatTextColor">Cor do texto da janela de chat:</label>
+          <input type="color" id="chatTextColor" name="chatTextColor" value="#d1d5db">
+        </div>
+        <div>
+          <label for="userBubbleColor">Cor da bolha do usuário:</label>
+          <input type="color" id="userBubbleColor" name="userBubbleColor" value="#3b82f6">
+        </div>
+        <div>
+          <label for="aiBubbleColor">Cor da bolha da IA:</label>
+          <input type="color" id="aiBubbleColor" name="aiBubbleColor" value="#374151">
+        </div>
+        <div style="margin-top: 10px;">
+          <button type="button" id="saveConfig">Salvar</button>
+          <button type="button" id="cancelConfig">Cancelar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+  
   <script>
-    // Exibe ou oculta as opções de investigação conforme o modo selecionado
+    // Alterna exibição das opções de investigação conforme o modo selecionado
     document.getElementById("mode").addEventListener("change", function() {
       const mode = this.value;
       const invOptions = document.getElementById("investigationOptions");
-      if(mode === "Investigação") {
-        invOptions.style.display = "flex";
-      } else {
-        invOptions.style.display = "none";
-      }
+      invOptions.style.display = mode === "Investigação" ? "flex" : "none";
     });
     
-    // Função para adicionar mensagem (usa innerHTML para renderizar HTML)
+    // Função para adicionar mensagem à janela de chat
     function appendMessage(windowId, sender, message) {
       const windowElement = document.getElementById(windowId);
       const messageDiv = document.createElement('div');
@@ -214,12 +360,12 @@
       document.getElementById("loadingSpinner").style.display = "none";
     }
     
-    // Envio do formulário
+    // Envio do formulário de chat
     document.getElementById("chatForm").addEventListener("submit", function(e) {
       e.preventDefault();
       const inputField = document.getElementById("chatInput");
       const message = inputField.value.trim();
-      if(!message) return;
+      if (!message) return;
       appendMessage("chatWindow", "user", message);
       inputField.value = "";
       
@@ -228,7 +374,6 @@
       formData.append('mode', document.getElementById("mode").value);
       formData.append('language', document.getElementById("language").value);
       formData.append('style', document.getElementById("style").value);
-      // Inclui as opções de investigação, se existirem
       formData.append('sites_meta', document.getElementById("sites_meta").value);
       formData.append('investigation_focus', document.getElementById("investigation_focus").value);
       formData.append('search_news', document.getElementById("search_news").checked);
@@ -245,6 +390,45 @@
         hideSpinner();
         appendMessage("chatWindow", "ai", "Erro na requisição: " + err);
       });
+    });
+    
+    // Configurações: exibição do modal
+    const configModal = document.getElementById("configModal");
+    const configToggleButton = document.getElementById("configToggleButton");
+    
+    configToggleButton.addEventListener("click", () => {
+      configModal.style.display = "flex";
+    });
+    
+    // Botões do modal de configurações
+    document.getElementById("cancelConfig").addEventListener("click", () => {
+      configModal.style.display = "none";
+    });
+    
+    document.getElementById("saveConfig").addEventListener("click", () => {
+      // Obter valores do formulário de configurações
+      const inputFontSize = document.getElementById("inputFontSize").value;
+      const inputWidth = document.getElementById("inputWidth").value;
+      const chatWindowHeight = document.getElementById("chatWindowHeight").value;
+      const chatWindowWidth = document.getElementById("chatWindowWidth").value;
+      const bodyBgColor = document.getElementById("bodyBgColor").value;
+      const chatBgColor = document.getElementById("chatBgColor").value;
+      const chatTextColor = document.getElementById("chatTextColor").value;
+      const userBubbleColor = document.getElementById("userBubbleColor").value;
+      const aiBubbleColor = document.getElementById("aiBubbleColor").value;
+      
+      // Atualizar estilos personalizados via elemento de estilo
+      const customStyles = document.getElementById("customStyles");
+      customStyles.innerHTML = `
+        #chatInput { font-size: ${inputFontSize}px; width: ${inputWidth}px; }
+        #chatWindow { height: ${chatWindowHeight}px; width: ${chatWindowWidth}px; background-color: ${chatBgColor}; color: ${chatTextColor}; }
+        .message.user .bubble { background-color: ${userBubbleColor}; }
+        .message.ai .bubble { background-color: ${aiBubbleColor}; }
+        body { background-color: ${bodyBgColor}; }
+      `;
+      
+      // Fechar o modal de configurações
+      configModal.style.display = "none";
     });
   </script>
 </body>
