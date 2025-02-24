@@ -52,7 +52,7 @@ The project consists of:
 1. **Clone the Repository:**
 
    ```bash
-   git clone https://github.com/yourusername/cyber-assistant-v4.git
+   git clone https://github.com/g0dux/CHATCYBER-BETA-.git
    cd cyber-assistant-v4
    ```
 
