@@ -145,6 +145,3 @@ This project is licensed under the [MIT License](LICENSE).
 ---
 
 Feel free to open issues and suggest improvements. Enjoy exploring the various features of Cyber Assistant v4.0!
-
-Happy Coding! 🚀
-```
