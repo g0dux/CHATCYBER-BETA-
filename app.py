@@ -9,7 +9,7 @@ import threading
 import nltk
 from flask import Flask, render_template, request, jsonify
 from nltk.sentiment import SentimentIntensityAnalyzer
-from langdetect import detect
+import langdetect
 from cachetools import TTLCache, cached
 import emoji
 from llama_cpp import Llama
