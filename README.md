@@ -44,7 +44,7 @@ The project consists of:
 ### Prerequisites
 
 - Python 3.8 or higher
-- [Git]([https://git-scm.com/](https://github.com/g0dux/CHATCYBER-BETA-.git))
+- [Git]((https://github.com/g0dux/CHATCYBER-BETA-.git))
 - Virtualenv (recommended)
 
 ### Installation Steps
