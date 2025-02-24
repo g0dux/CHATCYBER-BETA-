@@ -394,5 +394,5 @@ def internal_error(e):
 
 if __name__ == '__main__':
     # Substitua "YOUR_NGROK_AUTHTOKEN" por um authtoken válido obtido em https://dashboard.ngrok.com/get-started/your-authtoken
-    ngrok.set_auth_token("2tVBewEibjKz94pYVqJCr4q2HTx_4krjDHHxie5gNYJZvcRwh")
+    ngrok.set_auth_token("YOUR_NGROK_AUTHTOKEN")
     app.run(host='0.0.0.0', port=5000, debug=True)
