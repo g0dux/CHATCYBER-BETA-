@@ -1,141 +1,150 @@
-Below is an interactive README in English that explains how to install, run, and use the Cyber Assistant v4.0 tool, including recommendations for using a virtual environment locally or deploying it on a server.
-
 ```markdown
 # Cyber Assistant v4.0
 
-Cyber Assistant v4.0 is an integrated cyber investigation and chat tool built with Flask. It provides functionalities for interactive chatting, forensic investigation (with a detailed report and table of found links), and image metadata analysis—all through a responsive web interface that works on desktops and mobile devices.
+![Python Version](https://img.shields.io/badge/Python-3.8%2B-blue)
+![Flask](https://img.shields.io/badge/Flask-v2.0+-blue)
+![License](https://img.shields.io/badge/License-MIT-green)
+
+Cyber Assistant v4.0 is an interactive web application that combines an intelligent chat assistant with advanced forensic investigation capabilities and image metadata extraction. This project utilizes a neural model (Mistral-7B-Instruct) to generate responses in multiple languages and modes (Chat, Investigation, and Metadata), integrating various libraries for text processing, image analysis, and forensic data extraction.
+
+## Table of Contents
+
+- [Features](#features)
+- [Project Architecture](#project-architecture)
+- [Installation and Setup](#installation-and-setup)
+- [How to Run](#how-to-run)
+- [Operation Modes](#operation-modes)
+  - [Chat Mode](#chat-mode)
+  - [Investigation Mode](#investigation-mode)
+  - [Metadata Mode](#metadata-mode)
+- [Advanced Forensic Analysis](#advanced-forensic-analysis)
+- [Contribution](#contribution)
+- [License](#license)
 
 ## Features
 
-- **Chat Mode:** Engage in interactive conversations with an AI model.
-- **Investigation Mode:** Perform online investigations with forensic analysis, including:
-  - Customizable "Meta of sites" (number of search results)
-  - Optional activation of "News" and "Leaked Data" searches
-  - An additional "Focus" field for targeted inquiries
-  - A detailed report along with a table of found links
-- **Metadata Mode:** Analyze image metadata (EXIF) from a provided URL.
-- **Responsive Design:** Works well on both desktop and mobile devices.
-- **Loading Spinner:** Visual feedback while processing requests.
+- **Intelligent Chat:** Interact with the assistant in various languages and styles (Technical or Freeform).
+- **Forensic Investigation:** Conduct online investigations based on a target query, retrieving data from multiple websites and performing detailed forensic extraction.
+- **Image Metadata Extraction:** Analyze the EXIF metadata of an image provided via URL, including GPS data conversion for Google Maps integration.
+- **Neural Model Integration:** Uses the Mistral-7B-Instruct model via `llama_cpp` to generate responses and perform language translation when needed.
+- **Query Caching:** Implements caching to improve performance on repeated queries.
+- **Interactive Web Interface:** A responsive, configurable front-end built with HTML, CSS, and JavaScript.
 
-## Prerequisites
+## Project Architecture
 
-- Python 3.7 or later
-- It's **highly recommended** to use a [virtual environment](https://docs.python.org/3/tutorial/venv.html) for local installations.
-- Basic familiarity with the command line
+The project consists of:
 
-## Installation
+- **Backend (Flask):** Handles user requests, generates responses using the neural model, and executes forensic analysis and image metadata extraction functions.
+- **Neural Model:** Loaded using the `llama_cpp` library and downloaded from the Hugging Face Hub if not available locally.
+- **Front-end:** An interactive web interface that allows users to interact with the assistant in different operational modes.
+- **Supporting Libraries:** Includes `nltk`, `langdetect`, `cachetools`, `duckduckgo_search`, `Pillow`, among others, for language processing, image analysis, and data extraction.
 
-### 1. Clone the Repository
+## Installation and Setup
 
-```bash
-git clone https://github.com/yourusername/cyber-assistant-v4.git
-cd cyber-assistant-v4
-```
+### Prerequisites
 
-### 2. Create a Virtual Environment (Recommended for Local Use)
+- Python 3.8 or higher
+- [Git](https://git-scm.com/)
+- Virtualenv (recommended)
 
-#### On Linux/Mac:
-```bash
-python3 -m venv venv
-source venv/bin/activate
-```
+### Installation Steps
 
-#### On Windows:
-```bash
-python -m venv venv
-venv\Scripts\activate
-```
+1. **Clone the Repository:**
 
-### 3. Install Dependencies
+   ```bash
+   git clone https://github.com/yourusername/cyber-assistant-v4.git
+   cd cyber-assistant-v4
+   ```
 
-Install the required Python packages using pip:
+2. **Create a Virtual Environment (recommended):**
 
-```bash
-pip install -r requirements.txt
-```
+   ```bash
+   python -m venv venv
+   source venv/bin/activate   # Linux/MacOS
+   venv\Scripts\activate      # Windows
+   ```
 
-Make sure the following packages are installed (among others):
-- Flask
-- nltk
-- requests
-- psutil
-- cachetools
-- emoji
-- llama_cpp
-- huggingface_hub
-- duckduckgo_search
-- Pillow
-- langdetect
+3. **Install the Dependencies:**
 
-*Note: Some packages (e.g., `llama_cpp`) might require additional setup or specific hardware configurations.*
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-## Running the Tool
+   The main dependencies include:
+   - Flask
+   - nltk
+   - langdetect
+   - cachetools
+   - requests
+   - psutil
+   - llama_cpp
+   - huggingface_hub
+   - duckduckgo_search
+   - Pillow
 
-### Locally (Development)
+4. **Initial NLTK Setup:**
 
-To run the tool on your local machine:
+   On first run, the project will download the necessary NLTK data (such as `punkt` and `vader_lexicon`).
+
+## How to Run
+
+After installing the dependencies, start the application with:
 
 ```bash
 python app.py
 ```
 
-By default, the Flask server will start on `http://0.0.0.0:5000`. You can access it on your computer's browser. To use it on your mobile device (while on the same network), find your computer's local IP (using `ipconfig` on Windows or `ifconfig` on Linux/Mac) and visit:
+The Flask server will start at `http://0.0.0.0:5000/`. Open your web browser and navigate to this URL to use Cyber Assistant v4.0.
 
-```
-http://<your-computer-ip>:5000
-```
+## Operation Modes
 
-### On a Server
+The application supports three operation modes, configurable via the web interface:
 
-If you plan to deploy the tool on a server:
+### Chat Mode
 
-1. **Allow External Connections:**  
-   Ensure the Flask app is running with `app.run(host='0.0.0.0', port=5000, debug=True)` so that it listens on all network interfaces.
+- **Description:** Interact with the assistant in a conversational chat format.
+- **Features:** Choose the language (Português, English, Español, Français, Deutsch) and response style (Technical or Freeform).
 
-2. **Firewall Settings:**  
-   Make sure your server’s firewall permits traffic on the designated port (default: 5000).
+### Investigation Mode
 
-3. **Production Deployment:**  
-   Consider using a production-ready server (e.g., Gunicorn or uWSGI behind Nginx).
+- **Description:** Conduct online investigations based on a provided target query, collecting data from multiple websites.
+- **Features:** Adjust the number of websites to search, set a specific focus, and enable options for retrieving news or leaked data.
+- **Output:** Displays a detailed report with extracted information and forensic analysis.
 
-Example using Gunicorn:
-```bash
-gunicorn -w 4 -b 0.0.0.0:5000 app:app
-```
+### Metadata Mode
 
-## Usage
+- **Description:** Extract and display the metadata of an image using its URL.
+- **Features:** Includes EXIF data extraction and GPS coordinate conversion for a Google Maps link, if available.
 
-When you access the tool via your browser:
+## Advanced Forensic Analysis
 
-1. **Select the Mode:**  
-   - **Chat:** For general AI conversations.
-   - **Investigation:** For forensic investigation. When selected, extra options (Meta of sites, Focus, Activate News, Activate Leaked Data) appear.
-   - **Metadados (Metadata):** For image metadata analysis. Input the image URL and get the metadata in the main chat window.
+The advanced forensic analysis function has been enhanced to extract a wide range of relevant information from text, including:
 
-2. **Enter Your Query/URL:**  
-   - For **Investigation**, type your target subject.
-   - For **Metadata**, type or paste an image URL.
-   - For **Chat**, simply enter your message.
+- **IPv4 and IPv6 Addresses**
+- **Emails and Phone Numbers**
+- **URLs and MAC Addresses**
+- **Hashes:** MD5, SHA1, and SHA256
+- **Vulnerability IDs:** CVE (Common Vulnerabilities and Exposures)
 
-3. **Loading Spinner:**  
-   A loading spinner will be shown while the server processes your request.
+This functionality helps in identifying and correlating critical data useful for digital forensic investigations and security analysis.
 
-4. **View Results:**  
-   The response (which may include formatted HTML such as tables for investigation mode) will appear in the main chat window.
+## Contribution
 
-## Contributing
+Contributions are welcome! If you wish to help improve Cyber Assistant, follow these steps:
 
-Contributions are welcome! Please open issues or submit pull requests for improvements, bug fixes, or new features.
+1. Fork the repository.
+2. Create a new branch for your feature or fix: `git checkout -b my-new-feature`
+3. Make your changes and commit them: `git commit -m 'Add new feature'`
+4. Push your branch: `git push origin my-new-feature`
+5. Open a Pull Request on GitHub.
 
 ## License
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for more details.
+This project is licensed under the [MIT License](LICENSE).
 
-## Contact
+---
 
-For questions, feedback, or support, please open an issue on GitHub or contact [your-email@example.com].
+Feel free to open issues and suggest improvements. Enjoy exploring the various features of Cyber Assistant v4.0!
 
-Enjoy using Cyber Assistant v4.0!
+Happy Coding! 🚀
 ```
-
-Simply save this content as `README.md` in your GitHub repository. It provides clear, step-by-step instructions and details on how to run the tool locally or on a server, as well as information about the different modes and features.
