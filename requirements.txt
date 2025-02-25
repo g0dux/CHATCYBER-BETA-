@@ -9,4 +9,3 @@ huggingface_hub
 duckduckgo_search
 Pillow
 langdetect
-pyngrok
