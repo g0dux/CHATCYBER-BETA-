@@ -8,7 +8,7 @@ import psutil
 import threading
 import subprocess
 import nltk
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, request, jsonify, render_template_string
 from nltk.sentiment import SentimentIntensityAnalyzer
 from langdetect import detect
 from cachetools import TTLCache, cached
@@ -324,12 +324,451 @@ def process_investigation(target: str, sites_meta: int = 5, investigation_focus:
         logger.error(f"❌ Erro na investigação: {e}")
         return f"Erro na investigação: {e}"
 
+# Definindo o template HTML diretamente como string
+index_html = """
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Cyber Assistant v4.0</title>
+  <style>
+    /* Reset e estilo base */
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background-color: #1e1e1e;
+      color: #d1d5db;
+      font-family: 'Inter', sans-serif;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+    header {
+      background-color: #111827;
+      color: #fff;
+      padding: 20px;
+      text-align: center;
+      font-size: 24px;
+      font-weight: 600;
+      border-bottom: 1px solid #374151;
+    }
+    .nav-tabs {
+      display: flex;
+      background-color: #1e293b;
+      border-bottom: 1px solid #374151;
+    }
+    .nav-tabs button {
+      flex: 1;
+      padding: 15px 20px;
+      background: none;
+      border: none;
+      color: #9ca3af;
+      font-size: 16px;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+    .nav-tabs button:hover {
+      background-color: #27303f;
+    }
+    .nav-tabs button.active {
+      background-color: #374151;
+      color: #fff;
+      border-bottom: 2px solid #3b82f6;
+    }
+    .container {
+      flex: 1;
+      max-width: 800px;
+      margin: 20px auto;
+      padding: 10px;
+    }
+    .chat-window {
+      background-color: #1f2937;
+      border-radius: 8px;
+      padding: 20px;
+      height: 500px;
+      overflow-y: auto;
+      margin-bottom: 10px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    }
+    .message {
+      margin-bottom: 15px;
+      display: flex;
+    }
+    .message.user {
+      justify-content: flex-end;
+    }
+    .message.ai {
+      justify-content: flex-start;
+    }
+    .bubble {
+      padding: 10px 15px;
+      border-radius: 12px;
+      max-width: 70%;
+      word-wrap: break-word;
+      font-size: 16px;
+      line-height: 1.5;
+    }
+    .message.user .bubble {
+      background-color: #3b82f6;
+      color: #fff;
+      border-radius: 12px 12px 0 12px;
+    }
+    .message.ai .bubble {
+      background-color: #374151;
+      color: #d1d5db;
+      border-radius: 12px 12px 12px 0;
+    }
+    .input-area {
+      display: flex;
+      gap: 10px;
+    }
+    .input-area input[type="text"] {
+      flex: 1;
+      padding: 12px;
+      border: 1px solid #374151;
+      border-radius: 5px;
+      background-color: #1f2937;
+      color: #d1d5db;
+      font-size: 16px;
+    }
+    .input-area button {
+      padding: 12px 20px;
+      border: none;
+      background-color: #3b82f6;
+      color: #fff;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 16px;
+      transition: background-color 0.2s;
+    }
+    .input-area button:hover {
+      background-color: #2563eb;
+    }
+    .form-options {
+      margin-top: 10px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      font-size: 14px;
+      color: #9ca3af;
+    }
+    .form-options label {
+      margin-right: 10px;
+    }
+    /* Opções de investigação (ocultas por padrão) */
+    #investigationOptions { display: none; }
+    /* Spinner de carregamento */
+    #loadingSpinner {
+      display: none;
+      margin: 10px auto;
+      border: 6px solid #f3f3f3;
+      border-top: 6px solid #3b82f6;
+      border-radius: 50%;
+      width: 30px;
+      height: 30px;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    footer {
+      background-color: #111827;
+      color: #9ca3af;
+      text-align: center;
+      padding: 10px;
+      font-size: 12px;
+      border-top: 1px solid #374151;
+    }
+    
+    /* Estilos para o modal de configurações */
+    #configModal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.6);
+      justify-content: center;
+      align-items: center;
+      z-index: 1000;
+    }
+    #configModal .modal-content {
+      background: #1e1e1e;
+      padding: 20px;
+      border-radius: 8px;
+      max-width: 500px;
+      width: 90%;
+      color: #d1d5db;
+    }
+    #configModal .modal-content h2 {
+      margin-bottom: 15px;
+    }
+    #configModal .modal-content form > div {
+      margin-bottom: 10px;
+    }
+    #configModal label {
+      display: block;
+      margin-bottom: 4px;
+    }
+    #configModal input[type="number"],
+    #configModal input[type="color"] {
+      width: 100%;
+      padding: 6px;
+      border: 1px solid #374151;
+      border-radius: 4px;
+      background-color: #1f2937;
+      color: #d1d5db;
+    }
+    #configModal button {
+      padding: 8px 12px;
+      border: none;
+      background-color: #3b82f6;
+      color: #fff;
+      border-radius: 4px;
+      cursor: pointer;
+      margin-right: 10px;
+    }
+    
+    /* Estilo para o botão de configurações flutuante */
+    #configToggleButton {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background-color: #3b82f6;
+      color: #fff;
+      border: none;
+      border-radius: 50%;
+      width: 50px;
+      height: 50px;
+      cursor: pointer;
+      font-size: 24px;
+      z-index: 1001;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    }
+  </style>
+  <!-- Estilo personalizado atualizado via configurações -->
+  <style id="customStyles"></style>
+</head>
+<body>
+  <header>Cyber Assistant v4.0</header>
+  <div class="nav-tabs">
+    <button class="tab-button active" data-tab="chatTab">Chat</button>
+  </div>
+  <div class="container">
+    <div id="chatTab" class="tab-content">
+      <div class="chat-window" id="chatWindow"></div>
+      <!-- Spinner de carregamento -->
+      <div id="loadingSpinner"></div>
+      <form id="chatForm">
+        <div class="input-area">
+          <input type="text" id="chatInput" name="user_input" placeholder="Digite sua mensagem ou URL...">
+          <button type="submit">Enviar</button>
+        </div>
+        <div class="form-options">
+          <label for="mode">Modo:</label>
+          <select id="mode" name="mode">
+            <option value="Chat">Chat</option>
+            <option value="Investigação">Investigação</option>
+            <option value="Metadados">Metadados</option>
+          </select>
+          <label for="language">Idioma:</label>
+          <select id="language" name="language">
+            <option value="Português">Português</option>
+            <option value="English">English</option>
+            <option value="Español">Español</option>
+            <option value="Français">Français</option>
+            <option value="Deutsch">Deutsch</option>
+          </select>
+          <label for="style">Estilo:</label>
+          <select id="style" name="style">
+            <option value="Técnico">Técnico</option>
+            <option value="Livre">Livre</option>
+          </select>
+        </div>
+        <!-- Opções adicionais para investigação -->
+        <div class="form-options" id="investigationOptions">
+          <label for="sites_meta">Meta de sites:</label>
+          <input type="number" id="sites_meta" name="sites_meta" value="5" style="width: 60px;">
+          <label for="investigation_focus">Foco (opcional):</label>
+          <input type="text" id="investigation_focus" name="investigation_focus" placeholder="Ex: phishing, malware...">
+          <label>
+            <input type="checkbox" id="search_news" name="search_news"> Ativar Notícias
+          </label>
+          <label>
+            <input type="checkbox" id="search_leaked_data" name="search_leaked_data"> Ativar Dados Vazados
+          </label>
+        </div>
+      </form>
+    </div>
+  </div>
+  <footer>© 2025 Cyber Assistant</footer>
+  
+  <!-- Botão flutuante para abrir as configurações -->
+  <button id="configToggleButton">⚙️</button>
+  
+  <!-- Modal de configurações -->
+  <div id="configModal">
+    <div class="modal-content">
+      <h2>Configurações</h2>
+      <form id="configForm">
+        <div>
+          <label for="inputFontSize">Tamanho da fonte da entrada de texto (px):</label>
+          <input type="number" id="inputFontSize" name="inputFontSize" value="16" min="10" max="30">
+        </div>
+        <div>
+          <label for="inputWidth">Largura da entrada de texto (px):</label>
+          <input type="number" id="inputWidth" name="inputWidth" value="300" min="100" max="800">
+        </div>
+        <div>
+          <label for="chatWindowHeight">Altura da janela de chat (px):</label>
+          <input type="number" id="chatWindowHeight" name="chatWindowHeight" value="500" min="300" max="800">
+        </div>
+        <div>
+          <label for="chatWindowWidth">Largura da janela de chat (px):</label>
+          <input type="number" id="chatWindowWidth" name="chatWindowWidth" value="800" min="400" max="1200">
+        </div>
+        <div>
+          <label for="bodyBgColor">Cor de fundo do Body:</label>
+          <input type="color" id="bodyBgColor" name="bodyBgColor" value="#1e1e1e">
+        </div>
+        <div>
+          <label for="chatBgColor">Cor de fundo da janela de chat:</label>
+          <input type="color" id="chatBgColor" name="chatBgColor" value="#1f2937">
+        </div>
+        <div>
+          <label for="chatTextColor">Cor do texto da janela de chat:</label>
+          <input type="color" id="chatTextColor" name="chatTextColor" value="#d1d5db">
+        </div>
+        <div>
+          <label for="userBubbleColor">Cor da bolha do usuário:</label>
+          <input type="color" id="userBubbleColor" name="userBubbleColor" value="#3b82f6">
+        </div>
+        <div>
+          <label for="aiBubbleColor">Cor da bolha da IA:</label>
+          <input type="color" id="aiBubbleColor" name="aiBubbleColor" value="#374151">
+        </div>
+        <div style="margin-top: 10px;">
+          <button type="button" id="saveConfig">Salvar</button>
+          <button type="button" id="cancelConfig">Cancelar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+  
+  <script>
+    // Alterna exibição das opções de investigação conforme o modo selecionado
+    document.getElementById("mode").addEventListener("change", function() {
+      const mode = this.value;
+      const invOptions = document.getElementById("investigationOptions");
+      invOptions.style.display = mode === "Investigação" ? "flex" : "none";
+    });
+    
+    // Função para adicionar mensagem à janela de chat
+    function appendMessage(windowId, sender, message) {
+      const windowElement = document.getElementById(windowId);
+      const messageDiv = document.createElement('div');
+      messageDiv.className = `message ${sender}`;
+      const bubbleDiv = document.createElement('div');
+      bubbleDiv.className = 'bubble';
+      bubbleDiv.innerHTML = message;
+      messageDiv.appendChild(bubbleDiv);
+      windowElement.appendChild(messageDiv);
+      windowElement.scrollTop = windowElement.scrollHeight;
+    }
+    
+    // Exibe o spinner de carregamento
+    function showSpinner() {
+      document.getElementById("loadingSpinner").style.display = "block";
+    }
+    
+    // Oculta o spinner de carregamento
+    function hideSpinner() {
+      document.getElementById("loadingSpinner").style.display = "none";
+    }
+    
+    // Envio do formulário de chat
+    document.getElementById("chatForm").addEventListener("submit", function(e) {
+      e.preventDefault();
+      const inputField = document.getElementById("chatInput");
+      const message = inputField.value.trim();
+      if (!message) return;
+      appendMessage("chatWindow", "user", message);
+      inputField.value = "";
+      
+      const formData = new FormData();
+      formData.append('user_input', message);
+      formData.append('mode', document.getElementById("mode").value);
+      formData.append('language', document.getElementById("language").value);
+      formData.append('style', document.getElementById("style").value);
+      formData.append('sites_meta', document.getElementById("sites_meta").value);
+      formData.append('investigation_focus', document.getElementById("investigation_focus").value);
+      formData.append('search_news', document.getElementById("search_news").checked);
+      formData.append('search_leaked_data', document.getElementById("search_leaked_data").checked);
+      
+      showSpinner();
+      fetch('/ask', { method: 'POST', body: formData })
+      .then(res => res.json())
+      .then(data => {
+        hideSpinner();
+        appendMessage("chatWindow", "ai", data.response || "Erro: " + data.error);
+      })
+      .catch(err => {
+        hideSpinner();
+        appendMessage("chatWindow", "ai", "Erro na requisição: " + err);
+      });
+    });
+    
+    // Configurações: exibição do modal
+    const configModal = document.getElementById("configModal");
+    const configToggleButton = document.getElementById("configToggleButton");
+    
+    configToggleButton.addEventListener("click", () => {
+      configModal.style.display = "flex";
+    });
+    
+    // Botões do modal de configurações
+    document.getElementById("cancelConfig").addEventListener("click", () => {
+      configModal.style.display = "none";
+    });
+    
+    document.getElementById("saveConfig").addEventListener("click", () => {
+      // Obter valores do formulário de configurações
+      const inputFontSize = document.getElementById("inputFontSize").value;
+      const inputWidth = document.getElementById("inputWidth").value;
+      const chatWindowHeight = document.getElementById("chatWindowHeight").value;
+      const chatWindowWidth = document.getElementById("chatWindowWidth").value;
+      const bodyBgColor = document.getElementById("bodyBgColor").value;
+      const chatBgColor = document.getElementById("chatBgColor").value;
+      const chatTextColor = document.getElementById("chatTextColor").value;
+      const userBubbleColor = document.getElementById("userBubbleColor").value;
+      const aiBubbleColor = document.getElementById("aiBubbleColor").value;
+      
+      // Atualizar estilos personalizados via elemento de estilo
+      const customStyles = document.getElementById("customStyles");
+      customStyles.innerHTML = `
+        #chatInput { font-size: ${inputFontSize}px; width: ${inputWidth}px; }
+        #chatWindow { height: ${chatWindowHeight}px; width: ${chatWindowWidth}px; background-color: ${chatBgColor}; color: ${chatTextColor}; }
+        .message.user .bubble { background-color: ${userBubbleColor}; }
+        .message.ai .bubble { background-color: ${aiBubbleColor}; }
+        body { background-color: ${bodyBgColor}; }
+      `;
+      
+      // Fechar o modal de configurações
+      configModal.style.display = "none";
+    });
+  </script>
+</body>
+</html>
+"""
+
 @app.route('/')
 def index():
     """
-    Renderiza a página principal.
+    Renderiza a página principal usando o template embutido.
     """
-    return render_template('index.html')
+    return render_template_string(index_html)
 
 @app.route('/ask', methods=['POST'])
 def ask():
