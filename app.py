@@ -8,6 +8,7 @@ import psutil
 import threading
 import subprocess
 import nltk
+import concurrent.futures
 from flask import Flask, request, jsonify, render_template_string
 from nltk.sentiment import SentimentIntensityAnalyzer
 from langdetect import detect
@@ -288,28 +289,43 @@ def analyze_image_metadata(url: str) -> dict:
         logger.error(f"❌ Erro ao analisar metadados da imagem: {e}")
         return {"error": str(e)}
 
-def process_investigation(target: str, sites_meta: int = 5, investigation_focus: str = "",
-                          search_news: bool = False, search_leaked_data: bool = False) -> str:
+# === Modo de Investigação Aprimorado ===
+
+def perform_search(query: str, search_type: str, max_results: int) -> list:
     """
-    Processa uma investigação online com base no alvo informado.
+    Realiza uma busca usando DuckDuckGo Search para o tipo especificado.
+    'search_type' pode ser:
+      - 'web': para sites;
+      - 'news': para notícias;
+      - 'leaked': para dados vazados (busca por "{query} leaked").
     """
-    logger.info(f"🔍 Iniciando investigação para: {repr(target)}")
-    if not target.strip():
-        return "Erro: Por favor, insira um alvo para investigação."
-    
     try:
         with DDGS() as ddgs:
-            results = ddgs.text(keywords=target, max_results=sites_meta)
+            if search_type == 'web':
+                return list(ddgs.text(keywords=query, max_results=max_results))
+            elif search_type == 'news':
+                return list(ddgs.news(keywords=query, max_results=max_results))
+            elif search_type == 'leaked':
+                return list(ddgs.text(keywords=f"{query} leaked", max_results=max_results))
+            else:
+                return []
     except Exception as e:
-        logger.error(f"❌ Erro na pesquisa com DDGS: {e}")
-        return f"Erro na pesquisa: {e}"
-    
-    info_msg = f"Apenas {len(results)} sites encontrados para '{target}'.<br>" if len(results) < sites_meta else ""
-    formatted_results = "<br>".join(
+        logger.error(f"Erro na busca ({search_type}): {e}")
+        return []
+
+def format_search_results(results: list, section_title: str) -> tuple:
+    """
+    Formata os resultados em texto e em uma tabela HTML.
+    Retorna (formatted_text, links_table, info_message).
+    """
+    count = len(results)
+    info_message = f"Apenas {count} resultados encontrados para '{section_title}'.<br>" if count < 1 else ""
+    formatted_text = "<br>".join(
         f"• {res.get('title', 'Sem título')}<br>&nbsp;&nbsp;{res.get('href', 'Sem link')}<br>&nbsp;&nbsp;{res.get('body', '')}"
         for res in results
     )
     links_table = (
+        f"<h3>{section_title}</h3>"
         "<table border='1' style='width:100%; border-collapse: collapse; text-align: left;'>"
         "<thead><tr><th>Título</th><th>Link</th></tr></thead><tbody>"
     )
@@ -318,14 +334,58 @@ def process_investigation(target: str, sites_meta: int = 5, investigation_focus:
         href = res.get('href', 'Sem link')
         links_table += f"<tr><td>{title}</td><td><a href='{href}' target='_blank'>{href}</a></td></tr>"
     links_table += "</tbody></table>"
+    return formatted_text, links_table, info_message
+
+def process_investigation(target: str, sites_meta: int = 5, investigation_focus: str = "",
+                          search_news: bool = False, search_leaked_data: bool = False) -> str:
+    """
+    Processa uma investigação online com base no alvo informado.
+    Agora, realiza buscas paralelas para:
+      - Sites (busca padrão)
+      - Notícias (se search_news=True)
+      - Dados Vazados (se search_leaked_data=True)
+    Organiza os resultados em seções e gera um relatório detalhado.
+    """
+    logger.info(f"🔍 Iniciando investigação para: {repr(target)}")
+    if not target.strip():
+        return "Erro: Por favor, insira um alvo para investigação."
     
-    forensic_analysis = advanced_forensic_analysis(formatted_results)
+    # Executa as buscas em paralelo
+    search_tasks = {}
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        search_tasks['web'] = executor.submit(perform_search, target, 'web', sites_meta)
+        if search_news:
+            search_tasks['news'] = executor.submit(perform_search, target, 'news', sites_meta)
+        if search_leaked_data:
+            search_tasks['leaked'] = executor.submit(perform_search, target, 'leaked', sites_meta)
+    
+    results_web = search_tasks['web'].result() if 'web' in search_tasks else []
+    results_news = search_tasks['news'].result() if 'news' in search_tasks else []
+    results_leaked = search_tasks['leaked'].result() if 'leaked' in search_tasks else []
+    
+    # Formata os resultados de cada categoria
+    formatted_web, links_web, info_web = format_search_results(results_web, "Sites")
+    formatted_news, links_news, info_news = ("", "", "") if not results_news else format_search_results(results_news, "Notícias")
+    formatted_leaked, links_leaked, info_leaked = ("", "", "") if not results_leaked else format_search_results(results_leaked, "Dados Vazados")
+    
+    # Consolida os textos dos resultados para a análise e prompt
+    combined_results_text = ""
+    if formatted_web:
+        combined_results_text += "<br><br>Resultados de Sites:<br>" + formatted_web
+    if formatted_news:
+        combined_results_text += "<br><br>Notícias:<br>" + formatted_news
+    if formatted_leaked:
+        combined_results_text += "<br><br>Dados Vazados:<br>" + formatted_leaked
+    
+    # Executa a análise forense sobre os resultados combinados
+    forensic_analysis = advanced_forensic_analysis(combined_results_text)
     forensic_details = "<br>".join(f"{k}: {v}" for k, v in forensic_analysis.items() if v)
     
+    # Monta o prompt para a investigação, incluindo foco (se informado) e resultados
     investigation_prompt = f"Analise os dados obtidos sobre '{target}'"
     if investigation_focus:
         investigation_prompt += f", focando em '{investigation_focus}'"
-    investigation_prompt += "<br><br>Resultados de sites:<br>" + formatted_results
+    investigation_prompt += "<br>" + combined_results_text
     if forensic_details:
         investigation_prompt += "<br><br>Análise Forense Extraída:<br>" + forensic_details
     investigation_prompt += "<br><br>Elabore um relatório detalhado com ligações, riscos e informações relevantes."
@@ -341,11 +401,15 @@ def process_investigation(target: str, sites_meta: int = 5, investigation_focus:
             stop=["</s>"]
         )
         report = investigation_response['choices'][0]['message']['content']
-        final_report = info_msg + "<br>" + report + "<br><br>Links encontrados:<br>" + links_table
+        # Consolida as tabelas de links de todas as seções
+        links_combined = links_web + (links_news if links_news else "") + (links_leaked if links_leaked else "")
+        final_report = report + "<br><br>Links encontrados:<br>" + links_combined
         return final_report
     except Exception as e:
         logger.error(f"❌ Erro na investigação: {e}")
         return f"Erro na investigação: {e}"
+
+# ========================================
 
 # Definindo o template HTML diretamente como string
 index_html = """
