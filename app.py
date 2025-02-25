@@ -159,7 +159,6 @@ def advanced_forensic_analysis(text: str) -> dict:
     """
     forensic_info = {}
     try:
-        # Padrões de regex para diversas informações
         ip_pattern = re.compile(r'\b(?:\d{1,3}\.){3}\d{1,3}\b')
         ipv6_pattern = re.compile(r'\b(?:[A-Fa-f0-9]{1,4}:){7}[A-Fa-f0-9]{1,4}\b')
         email_pattern = re.compile(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}')
@@ -171,7 +170,6 @@ def advanced_forensic_analysis(text: str) -> dict:
         sha256_pattern = re.compile(r'\b[a-fA-F0-9]{64}\b')
         cve_pattern = re.compile(r'\bCVE-\d{4}-\d{4,7}\b')
         
-        # Extração das informações
         ip_addresses = ip_pattern.findall(text)
         if ip_addresses:
             forensic_info['Endereços IPv4'] = list(set(ip_addresses))
@@ -387,22 +385,41 @@ def internal_error(e):
 
 def ensure_localtunnel_installed():
     """
-    Verifica se o LocalTunnel está instalado; caso não esteja, instala o Node.js, npm e localtunnel.
+    Verifica se o LocalTunnel está instalado; caso não esteja, tenta instalá-lo via npm.
+    Se o npm não estiver disponível, informa ao usuário para que instale manualmente.
     """
     try:
-        # Verifica se o comando "lt" existe
         result = subprocess.run("which lt", shell=True, capture_output=True, text=True)
         if not result.stdout.strip():
-            print("LocalTunnel não encontrado. Instalando Node.js, npm e localtunnel...")
-            # Instala Node.js e npm (no Colab, geralmente já há apt-get disponível)
-            subprocess.run("apt-get install -y nodejs npm", shell=True, check=True)
-            # Instala o localtunnel globalmente via npm
-            subprocess.run("npm install -g localtunnel", shell=True, check=True)
-            print("LocalTunnel instalado com sucesso!")
+            print("LocalTunnel não encontrado. Verificando se npm está disponível...")
+            npm_result = subprocess.run("which npm", shell=True, capture_output=True, text=True)
+            if not npm_result.stdout.strip():
+                print("npm não está disponível. Por favor, instale Node.js e npm manualmente.")
+                return
+            else:
+                print("Instalando LocalTunnel via npm...")
+                subprocess.run("npm install -g localtunnel", shell=True, check=True)
+                print("LocalTunnel instalado com sucesso!")
         else:
             print("LocalTunnel já está instalado.")
     except Exception as e:
         print("Erro ao verificar ou instalar LocalTunnel:", e)
+
+def get_tunnel_password():
+    """
+    Obtém e exibe o tunnel password (IP público) utilizando o comando curl.
+    """
+    try:
+        # Aguarda alguns segundos para garantir que o LocalTunnel já esteja ativo
+        time.sleep(3)
+        result = subprocess.run("curl https://loca.lt/mytunnelpassword", shell=True, capture_output=True, text=True)
+        password = result.stdout.strip()
+        if password:
+            print("Tunnel Password:", password)
+        else:
+            print("Não foi possível obter o tunnel password.")
+    except Exception as e:
+        print("Erro ao obter tunnel password:", e)
 
 if __name__ == '__main__':
     # Verifica e instala o LocalTunnel, se necessário
@@ -411,15 +428,22 @@ if __name__ == '__main__':
     # Inicia o LocalTunnel para expor a porta 5000.
     def read_lt_output(process):
         for line in process.stdout:
-            print("LocalTunnel:", line.strip())
+            # Exibe a URL pública gerada pelo LocalTunnel
+            if "your url is:" in line.lower():
+                print("LocalTunnel URL:", line.strip())
+            else:
+                print("LocalTunnel:", line.strip())
 
     lt_command = "lt --port 5000"
     print("Iniciando LocalTunnel para expor a aplicação na porta 5000...")
     lt_process = subprocess.Popen(lt_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     
-    # Thread para exibir a saída do LocalTunnel (onde o URL público aparecerá)
+    # Inicia uma thread para exibir a saída do LocalTunnel
     lt_thread = threading.Thread(target=read_lt_output, args=(lt_process,), daemon=True)
     lt_thread.start()
-
+    
+    # Obtém e exibe o tunnel password
+    get_tunnel_password()
+    
     print("Executando a aplicação Flask...")
     app.run(host='0.0.0.0', port=5000, debug=True)
