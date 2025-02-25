@@ -61,19 +61,42 @@ def download_model() -> None:
 def load_model() -> Llama:
     """
     Carrega o modelo neural. Se não existir localmente, faz o download.
+    Tenta detectar GPU usando GPUtil e, se disponível, utiliza mais camadas na GPU e
+    aumenta o tamanho do lote para acelerar a inferência.
     """
     model_path = os.path.join(DEFAULT_LOCAL_MODEL_DIR, DEFAULT_MODEL_FILE)
     if not os.path.exists(model_path):
         download_model()
     try:
-        n_gpu_layers = 33 if psutil.virtual_memory().available > 4 * 1024 ** 3 else 15
+        # Tentativa de utilizar GPU com GPUtil
+        try:
+            import GPUtil
+            gpus = GPUtil.getGPUs()
+            if gpus:
+                # Seleciona o GPU com maior memória livre
+                max_free_mem = max(gpu.memoryFree for gpu in gpus)  # memória livre em MB
+                # Se a memória livre for superior a um threshold (ex.: 6000 MB), use todas as camadas na GPU.
+                if max_free_mem > 6000:
+                    n_gpu_layers = -1  # -1 indica que todas as camadas serão processadas na GPU
+                    logger.info("Utilizando todas as camadas na GPU (n_gpu_layers = -1) devido à memória disponível.")
+                else:
+                    n_gpu_layers = 33
+                    logger.info(f"Utilizando 33 camadas na GPU. Memória livre detectada: {max_free_mem} MB.")
+            else:
+                raise Exception("Nenhuma GPU detectada.")
+        except Exception as gpu_error:
+            logger.warning("GPU não detectada ou erro na detecção de GPU: {}. Usando heurística baseada na memória do sistema.".format(gpu_error))
+            n_gpu_layers = 33 if psutil.virtual_memory().available > 4 * 1024 ** 3 else 15
+
+        # Aumenta o tamanho do lote para acelerar a geração (valor ajustável conforme o hardware)
         model = Llama(
             model_path=model_path,
             n_ctx=4096,
             n_threads=psutil.cpu_count(logical=True),
-            n_gpu_layers=n_gpu_layers
+            n_gpu_layers=n_gpu_layers,
+            n_batch=512  # Tamanho do lote aumentado para acelerar a inferência
         )
-        logger.info("🤖 Modelo Neural Carregado")
+        logger.info(f"🤖 Modelo Neural Carregado com n_gpu_layers={n_gpu_layers} e n_batch=512")
         return model
     except Exception as e:
         logger.error(f"❌ Erro na Inicialização do Modelo: {e}")
