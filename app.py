@@ -1,3 +1,14 @@
+import sys
+# Patch para contornar a ausência do módulo 'distutils'
+try:
+    import distutils
+except ImportError:
+    try:
+        import setuptools._distutils as distutils
+        sys.modules['distutils'] = distutils
+    except ImportError:
+        pass
+
 import os
 import time
 import re
@@ -62,42 +73,41 @@ def download_model() -> None:
 def load_model() -> Llama:
     """
     Carrega o modelo neural. Se não existir localmente, faz o download.
-    Tenta detectar GPU usando GPUtil e, se disponível, utiliza mais camadas na GPU e
-    aumenta o tamanho do lote para acelerar a inferência.
+    Verifica se há GPU disponível usando GPUtil e, se houver, utiliza todas as camadas na GPU
+    (n_gpu_layers=-1) e aumenta o tamanho do lote (n_batch) para acelerar a inferência.
+    Caso contrário, usa uma configuração otimizada para a CPU.
     """
     model_path = os.path.join(DEFAULT_LOCAL_MODEL_DIR, DEFAULT_MODEL_FILE)
     if not os.path.exists(model_path):
         download_model()
     try:
-        # Tentativa de utilizar GPU com GPUtil
+        # Configuração padrão para CPU
+        n_gpu_layers = 15
+        n_batch = 512
+        use_gpu = False
+
+        # Tenta detectar GPU usando GPUtil
         try:
             import GPUtil
             gpus = GPUtil.getGPUs()
             if gpus:
-                # Seleciona o GPU com maior memória livre
-                max_free_mem = max(gpu.memoryFree for gpu in gpus)  # memória livre em MB
-                # Se a memória livre for superior a um threshold (ex.: 6000 MB), use todas as camadas na GPU.
-                if max_free_mem > 6000:
-                    n_gpu_layers = -1  # -1 indica que todas as camadas serão processadas na GPU
-                    logger.info("Utilizando todas as camadas na GPU (n_gpu_layers = -1) devido à memória disponível.")
-                else:
-                    n_gpu_layers = 33
-                    logger.info(f"Utilizando 33 camadas na GPU. Memória livre detectada: {max_free_mem} MB.")
+                use_gpu = True
+                n_gpu_layers = -1   # Todas as camadas na GPU
+                n_batch = 1024      # Aumenta o tamanho do lote para melhor performance
+                logger.info("GPU detectada. Utilizando todas as camadas na GPU (n_gpu_layers=-1) e n_batch=1024.")
             else:
-                raise Exception("Nenhuma GPU detectada.")
+                logger.info("Nenhuma GPU detectada. Usando configuração otimizada para CPU.")
         except Exception as gpu_error:
-            logger.warning("GPU não detectada ou erro na detecção de GPU: {}. Usando heurística baseada na memória do sistema.".format(gpu_error))
-            n_gpu_layers = 33 if psutil.virtual_memory().available > 4 * 1024 ** 3 else 15
+            logger.warning(f"Erro na detecção da GPU: {gpu_error}. Configuração para CPU será utilizada.")
 
-        # Aumenta o tamanho do lote para acelerar a geração (valor ajustável conforme o hardware)
         model = Llama(
             model_path=model_path,
             n_ctx=4096,
             n_threads=psutil.cpu_count(logical=True),
             n_gpu_layers=n_gpu_layers,
-            n_batch=512  # Tamanho do lote aumentado para acelerar a inferência
+            n_batch=n_batch
         )
-        logger.info(f"🤖 Modelo Neural Carregado com n_gpu_layers={n_gpu_layers} e n_batch=512")
+        logger.info(f"🤖 Modelo Neural Carregado com n_gpu_layers={n_gpu_layers}, n_batch={n_batch} e n_threads={psutil.cpu_count(logical=True)}")
         return model
     except Exception as e:
         logger.error(f"❌ Erro na Inicialização do Modelo: {e}")
@@ -340,7 +350,7 @@ def process_investigation(target: str, sites_meta: int = 5, investigation_focus:
                           search_news: bool = False, search_leaked_data: bool = False) -> str:
     """
     Processa uma investigação online com base no alvo informado.
-    Agora, realiza buscas paralelas para:
+    Realiza buscas paralelas para:
       - Sites (busca padrão)
       - Notícias (se search_news=True)
       - Dados Vazados (se search_leaked_data=True)
@@ -853,7 +863,7 @@ index_html = """
 @app.route('/')
 def index():
     """
-    Renderiza a página principal usando o template embutido.
+    a página principal usando o template embutido.
     """
     return render_template_string(index_html)
 
@@ -863,7 +873,8 @@ def ask():
     Endpoint que processa as requisições em três modos:
       - Chat
       - Investigação
-      - Metadados
+      - Metadados 
+      renderiza
     """
     user_input = request.form.get('user_input', '')
     mode = request.form.get('mode', 'Chat')
