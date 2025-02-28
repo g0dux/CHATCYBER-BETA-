@@ -84,14 +84,12 @@ def load_model() -> Llama:
         # Configuração padrão para CPU
         n_gpu_layers = 15
         n_batch = 512
-        use_gpu = False
 
         # Tenta detectar GPU usando GPUtil
         try:
             import GPUtil
             gpus = GPUtil.getGPUs()
             if gpus:
-                use_gpu = True
                 n_gpu_layers = -1   # Todas as camadas na GPU
                 n_batch = 1024      # Aumenta o tamanho do lote para melhor performance
                 logger.info("GPU detectada. Utilizando todas as camadas na GPU (n_gpu_layers=-1) e n_batch=1024.")
@@ -190,9 +188,11 @@ def correct_language(text: str, lang_config: dict) -> str:
 def advanced_forensic_analysis(text: str) -> dict:
     """
     Realiza uma análise forense aprimorada no texto fornecido, extraindo informações relevantes.
+    Foram adicionados diversos padrões de regex para simular técnicas de investigação.
     """
     forensic_info = {}
     try:
+        # Padrões já existentes
         ip_pattern = re.compile(r'\b(?:\d{1,3}\.){3}\d{1,3}\b')
         ipv6_pattern = re.compile(r'\b(?:[A-Fa-f0-9]{1,4}:){7}[A-Fa-f0-9]{1,4}\b')
         email_pattern = re.compile(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}')
@@ -203,46 +203,55 @@ def advanced_forensic_analysis(text: str) -> dict:
         sha1_pattern = re.compile(r'\b[a-fA-F0-9]{40}\b')
         sha256_pattern = re.compile(r'\b[a-fA-F0-9]{64}\b')
         cve_pattern = re.compile(r'\bCVE-\d{4}-\d{4,7}\b')
+        # Padrões adicionais para investigação policial:
+        imei_pattern = re.compile(r'\b\d{15}\b')
+        cpf_pattern = re.compile(r'\b\d{3}\.\d{3}\.\d{3}-\d{2}\b')
+        # Novo: Padrão para CNPJ (formato XX.XXX.XXX/XXXX-XX)
+        cnpj_pattern = re.compile(r'\b\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2}\b')
+        # Novo: Padrão para SSN (formato 000-00-0000)
+        ssn_pattern = re.compile(r'\b\d{3}-\d{2}-\d{4}\b')
+        # Novo: Padrão para UUID/GUID
+        uuid_pattern = re.compile(r'\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b')
+        # Novo: Padrão para número de cartão de crédito (genérico, 13 a 16 dígitos, com ou sem separadores)
+        cc_pattern = re.compile(r'\b(?:\d[ -]*?){13,16}\b')
+        # Novo: Padrão para endereços Bitcoin (iniciando com 1 ou 3 e com 26 a 35 caracteres)
+        btc_pattern = re.compile(r'\b(?:[13][a-km-zA-HJ-NP-Z1-9]{25,34})\b')
         
-        ip_addresses = ip_pattern.findall(text)
-        if ip_addresses:
-            forensic_info['Endereços IPv4'] = list(set(ip_addresses))
-        
-        ipv6_addresses = ipv6_pattern.findall(text)
-        if ipv6_addresses:
-            forensic_info['Endereços IPv6'] = list(set(ipv6_addresses))
-        
-        emails = email_pattern.findall(text)
-        if emails:
-            forensic_info['E-mails'] = list(set(emails))
-        
-        phones = phone_pattern.findall(text)
-        if phones:
-            forensic_info['Telefones'] = list(set(phones))
-        
-        urls = url_pattern.findall(text)
-        if urls:
-            forensic_info['URLs'] = list(set(urls))
-        
-        macs = mac_pattern.findall(text)
-        if macs:
-            forensic_info['Endereços MAC'] = list(set(macs))
-        
-        md5_hashes = md5_pattern.findall(text)
-        if md5_hashes:
-            forensic_info['Hashes MD5'] = list(set(md5_hashes))
-        
-        sha1_hashes = sha1_pattern.findall(text)
-        if sha1_hashes:
-            forensic_info['Hashes SHA1'] = list(set(sha1_hashes))
-        
-        sha256_hashes = sha256_pattern.findall(text)
-        if sha256_hashes:
-            forensic_info['Hashes SHA256'] = list(set(sha256_hashes))
-        
-        cve_ids = cve_pattern.findall(text)
-        if cve_ids:
-            forensic_info['IDs CVE'] = list(set(cve_ids))
+        # Extração dos padrões
+        if (matches := ip_pattern.findall(text)):
+            forensic_info['Endereços IPv4'] = list(set(matches))
+        if (matches := ipv6_pattern.findall(text)):
+            forensic_info['Endereços IPv6'] = list(set(matches))
+        if (matches := email_pattern.findall(text)):
+            forensic_info['E-mails'] = list(set(matches))
+        if (matches := phone_pattern.findall(text)):
+            forensic_info['Telefones'] = list(set(matches))
+        if (matches := url_pattern.findall(text)):
+            forensic_info['URLs'] = list(set(matches))
+        if (matches := mac_pattern.findall(text)):
+            forensic_info['Endereços MAC'] = list(set(matches))
+        if (matches := md5_pattern.findall(text)):
+            forensic_info['Hashes MD5'] = list(set(matches))
+        if (matches := sha1_pattern.findall(text)):
+            forensic_info['Hashes SHA1'] = list(set(matches))
+        if (matches := sha256_pattern.findall(text)):
+            forensic_info['Hashes SHA256'] = list(set(matches))
+        if (matches := cve_pattern.findall(text)):
+            forensic_info['IDs CVE'] = list(set(matches))
+        if (matches := imei_pattern.findall(text)):
+            forensic_info['IMEI'] = list(set(matches))
+        if (matches := cpf_pattern.findall(text)):
+            forensic_info['CPF'] = list(set(matches))
+        if (matches := cnpj_pattern.findall(text)):
+            forensic_info['CNPJ'] = list(set(matches))
+        if (matches := ssn_pattern.findall(text)):
+            forensic_info['SSN'] = list(set(matches))
+        if (matches := uuid_pattern.findall(text)):
+            forensic_info['UUID'] = list(set(matches))
+        if (matches := cc_pattern.findall(text)):
+            forensic_info['Cartões de Crédito'] = list(set(matches))
+        if (matches := btc_pattern.findall(text)):
+            forensic_info['Endereço Bitcoin'] = list(set(matches))
         
     except Exception as e:
         logger.error(f"❌ Erro durante a análise forense: {e}")
@@ -299,7 +308,7 @@ def analyze_image_metadata(url: str) -> dict:
         logger.error(f"❌ Erro ao analisar metadados da imagem: {e}")
         return {"error": str(e)}
 
-# === Modo de Investigação Aprimorado ===
+# === Modo de Investigação Aprimorado com Métodos Policiais ===
 
 def perform_search(query: str, search_type: str, max_results: int) -> list:
     """
@@ -355,6 +364,7 @@ def process_investigation(target: str, sites_meta: int = 5, investigation_focus:
       - Notícias (se search_news=True)
       - Dados Vazados (se search_leaked_data=True)
     Organiza os resultados em seções e gera um relatório detalhado.
+    Agora, o prompt utiliza métodos policiais, orientando o perito a empregar técnicas de investigação utilizadas por forças policiais.
     """
     logger.info(f"🔍 Iniciando investigação para: {repr(target)}")
     if not target.strip():
@@ -403,7 +413,7 @@ def process_investigation(target: str, sites_meta: int = 5, investigation_focus:
     try:
         investigation_response = model.create_chat_completion(
             messages=[
-                {"role": "system", "content": "Você é um perito em investigação online e análise forense digital. Seja minucioso e detalhado."},
+                {"role": "system", "content": "Você é um perito policial e forense digital, experiente em métodos policiais de investigação. Utilize técnicas de análise de evidências, protocolos forenses e investigação digital para identificar padrões, rastrear conexões e coletar evidências relevantes. Seja minucioso, preciso e detalhado."},
                 {"role": "user", "content": investigation_prompt}
             ],
             temperature=0.7,
@@ -422,7 +432,7 @@ def process_investigation(target: str, sites_meta: int = 5, investigation_focus:
 # ========================================
 
 # Definindo o template HTML diretamente como string
-index_html = """
+index_html ="""
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -863,7 +873,7 @@ index_html = """
 @app.route('/')
 def index():
     """
-    a página principal usando o template embutido.
+    Renderiza a página principal usando o template embutido.
     """
     return render_template_string(index_html)
 
@@ -873,8 +883,7 @@ def ask():
     Endpoint que processa as requisições em três modos:
       - Chat
       - Investigação
-      - Metadados 
-      renderiza
+      - Metadados
     """
     user_input = request.form.get('user_input', '')
     mode = request.form.get('mode', 'Chat')
