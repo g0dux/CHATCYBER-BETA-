@@ -20,6 +20,11 @@ import threading
 import subprocess
 import nltk
 import concurrent.futures
+import email
+from email import policy
+from email.parser import BytesParser
+import numpy as np
+from sklearn.ensemble import IsolationForest
 from flask import Flask, request, jsonify, render_template_string, Response
 from nltk.sentiment import SentimentIntensityAnalyzer
 from langdetect import detect
@@ -28,9 +33,6 @@ from llama_cpp import Llama
 from huggingface_hub import hf_hub_download
 from duckduckgo_search import DDGS
 from PIL import Image, ExifTags
-
-# Removido o import do Redis para compatibilidade com Windows
-# import redis
 from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
 
 # Configurações iniciais do NLTK (necessário apenas na primeira execução)
@@ -252,13 +254,12 @@ def streaming_response(text: str, chunk_size: int = 200):
     """
     for i in range(0, len(text), chunk_size):
         yield text[i:i+chunk_size]
-        time.sleep(0.1)  # Pequena pausa para simular o streaming
+        time.sleep(0.1)
 
 # ===== Análise Forense e Processamento de Texto =====
 def advanced_forensic_analysis(text: str) -> dict:
     """
     Realiza uma análise forense aprimorada no texto fornecido, extraindo informações relevantes.
-    Utiliza padrões de regex pré-compilados para maior eficiência.
     """
     forensic_info = {}
     try:
@@ -389,7 +390,6 @@ def process_investigation(target: str, sites_meta: int = 5, investigation_focus:
     if not target.strip():
         return "Erro: Por favor, insira um alvo para investigação."
     
-    # Executa as buscas em paralelo
     search_tasks = {}
     with concurrent.futures.ThreadPoolExecutor() as executor:
         search_tasks['web'] = executor.submit(perform_search, target, 'web', sites_meta)
@@ -402,12 +402,10 @@ def process_investigation(target: str, sites_meta: int = 5, investigation_focus:
     results_news = search_tasks['news'].result() if 'news' in search_tasks else []
     results_leaked = search_tasks['leaked'].result() if 'leaked' in search_tasks else []
     
-    # Formata os resultados de cada categoria
     formatted_web, links_web, info_web = format_search_results(results_web, "Sites")
     formatted_news, links_news, info_news = ("", "", "") if not results_news else format_search_results(results_news, "Notícias")
     formatted_leaked, links_leaked, info_leaked = ("", "", "") if not results_leaked else format_search_results(results_leaked, "Dados Vazados")
     
-    # Consolida os textos dos resultados para a análise e prompt
     combined_results_text = ""
     if formatted_web:
         combined_results_text += "<br><br>Resultados de Sites:<br>" + formatted_web
@@ -416,11 +414,9 @@ def process_investigation(target: str, sites_meta: int = 5, investigation_focus:
     if formatted_leaked:
         combined_results_text += "<br><br>Dados Vazados:<br>" + formatted_leaked
     
-    # Executa a análise forense sobre os resultados combinados
     forensic_analysis = advanced_forensic_analysis(combined_results_text)
     forensic_details = "<br>".join(f"{k}: {v}" for k, v in forensic_analysis.items() if v)
     
-    # Monta o prompt para a investigação
     investigation_prompt = f"Analise os dados obtidos sobre '{target}'"
     if investigation_focus:
         investigation_prompt += f", focando em '{investigation_focus}'"
@@ -448,8 +444,10 @@ def process_investigation(target: str, sites_meta: int = 5, investigation_focus:
         return f"Erro na investigação: {e}"
 
 # ========================================
+# Endpoints da Aplicação Web
+# ========================================
 
-# Definindo o template HTML diretamente como string (atualize conforme necessário)
+# Página principal
 index_html = """
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -961,9 +959,6 @@ index_html = """
 
 @app.route('/')
 def index():
-    """
-    Renderiza a página principal usando o template embutido.
-    """
     return render_template_string(index_html)
 
 @app.route('/ask', methods=['POST'])
@@ -1005,7 +1000,6 @@ def ask():
     else:  # Modo Chat
         try:
             response_text = generate_response(user_input, lang, style)
-            # Verifica se o streaming foi solicitado via parâmetro 'stream'
             stream = request.args.get('stream', 'false').lower() == 'true'
             if stream and len(response_text) > 200:
                 return Response(streaming_response(response_text), mimetype='text/plain')
@@ -1015,14 +1009,126 @@ def ask():
             logger.error(f"❌ Erro no modo Chat: {e}")
             return jsonify({'error': str(e)}), 500
 
-@app.errorhandler(404)
-def not_found(e):
-    return jsonify({'error': 'Endpoint not found'}), 404
+# ===== Forense de E-mails e Comunicação =====
+def analyze_email_forensics(raw_email: bytes) -> dict:
+    """
+    Analisa o e-mail bruto e extrai cabeçalhos, remetente, destinatários, assunto,
+    data e informações de anexos.
+    """
+    result = {}
+    try:
+        msg = BytesParser(policy=policy.default).parsebytes(raw_email)
+        result['From'] = msg.get('From')
+        result['To'] = msg.get('To')
+        result['Subject'] = msg.get('Subject')
+        result['Date'] = msg.get('Date')
+        
+        attachments = []
+        for part in msg.walk():
+            content_disposition = part.get("Content-Disposition", "")
+            if "attachment" in content_disposition:
+                attachments.append({
+                    "filename": part.get_filename(),
+                    "content_type": part.get_content_type(),
+                    "size": len(part.get_payload(decode=True))
+                })
+        result['Attachments'] = attachments
+    except Exception as e:
+        result['error'] = str(e)
+    return result
 
-@app.errorhandler(500)
-def internal_error(e):
-    return jsonify({'error': 'Internal server error'}), 500
+@app.route('/email_forensics', methods=['POST'])
+def email_forensics():
+    """
+    Endpoint para análise forense de e-mails.
+    Espera o upload de um arquivo de e-mail (raw) e retorna os dados forenses extraídos.
+    """
+    if 'email_file' not in request.files:
+        return jsonify({'error': 'Arquivo de e-mail não fornecido'}), 400
+    email_file = request.files['email_file']
+    raw_email = email_file.read()
+    analysis = analyze_email_forensics(raw_email)
+    return jsonify(analysis)
 
+# ===== Análise de Comportamento de Usuário (UBA) =====
+def analyze_user_behavior(user_data: list) -> dict:
+    """
+    Recebe uma lista de registros de comportamento do usuário e aplica detecção de anomalias
+    utilizando IsolationForest.
+    Cada registro deve ser um dicionário com métricas numéricas.
+    """
+    result = {}
+    try:
+        if not user_data:
+            return {"error": "Nenhum dado de usuário fornecido"}
+        
+        keys = list(user_data[0].keys())
+        X = np.array([[record[k] for k in keys] for record in user_data])
+        
+        model_uba = IsolationForest(contamination=0.1, random_state=42)
+        model_uba.fit(X)
+        scores = model_uba.decision_function(X)
+        anomalies = model_uba.predict(X)
+        
+        analysis = []
+        for i, record in enumerate(user_data):
+            record_analysis = record.copy()
+            record_analysis['anomaly_score'] = scores[i]
+            record_analysis['is_anomaly'] = anomalies[i] == -1
+            analysis.append(record_analysis)
+        result['analysis'] = analysis
+    except Exception as e:
+        result['error'] = str(e)
+    return result
+
+@app.route('/user_behavior', methods=['POST'])
+def user_behavior():
+    """
+    Endpoint para análise de comportamento de usuários (UBA).
+    Recebe um JSON com registros de atividades do usuário e retorna a análise de anomalias.
+    """
+    try:
+        user_data = request.get_json()
+        if not user_data:
+            return jsonify({'error': 'Nenhum dado de usuário fornecido'}), 400
+        analysis = analyze_user_behavior(user_data)
+        return jsonify(analysis)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# ===== Análise de Logs e Integração com SIEM =====
+def analyze_logs_for_siem(logs: str) -> dict:
+    """
+    Processa logs em formato texto e extrai informações relevantes, como contagem de erros e avisos.
+    """
+    result = {}
+    try:
+        error_pattern = re.compile(r'ERROR|error')
+        warning_pattern = re.compile(r'WARNING|warning')
+        errors = error_pattern.findall(logs)
+        warnings = warning_pattern.findall(logs)
+        
+        result['error_count'] = len(errors)
+        result['warning_count'] = len(warnings)
+        result['total_lines'] = len(logs.splitlines())
+        result['sample_lines'] = logs.splitlines()[:5]
+    except Exception as e:
+        result['error'] = str(e)
+    return result
+
+@app.route('/log_analysis', methods=['POST'])
+def log_analysis():
+    """
+    Endpoint para análise de logs e integração com SIEM.
+    Recebe logs em formato texto via formulário e retorna um relatório com a contagem de erros e avisos.
+    """
+    logs = request.form.get('logs', '')
+    if not logs:
+        return jsonify({'error': 'Nenhum log fornecido'}), 400
+    analysis = analyze_logs_for_siem(logs)
+    return jsonify(analysis)
+
+# ===== Funções para LocalTunnel (opcional) =====
 def ensure_localtunnel_installed():
     """
     Verifica se o LocalTunnel está instalado; caso não esteja, tenta instalá-lo via npm.
@@ -1033,7 +1139,7 @@ def ensure_localtunnel_installed():
             print("LocalTunnel não encontrado. Verificando se npm está disponível...")
             npm_result = subprocess.run("which npm", shell=True, capture_output=True, text=True)
             if not npm_result.stdout.strip():
-                print("npm não está disponível. Por favor, instale Node.js e npm manualmente.")
+                print("npm não está disponível. Instale Node.js e npm manualmente.")
                 return
             else:
                 print("Instalando LocalTunnel via npm...")
@@ -1059,11 +1165,10 @@ def get_tunnel_password():
     except Exception as e:
         print("Erro ao obter tunnel password:", e)
 
+# ===== Execução da Aplicação =====
 if __name__ == '__main__':
-    # Verifica e instala o LocalTunnel, se necessário
     ensure_localtunnel_installed()
 
-    # Inicia o LocalTunnel para expor a porta 5000.
     def read_lt_output(process):
         for line in process.stdout:
             if "your url is:" in line.lower():
