@@ -20,15 +20,18 @@ import threading
 import subprocess
 import nltk
 import concurrent.futures
-from flask import Flask, request, jsonify, render_template_string
+from flask import Flask, request, jsonify, render_template_string, Response
 from nltk.sentiment import SentimentIntensityAnalyzer
 from langdetect import detect
-from cachetools import TTLCache, cached
 import emoji
 from llama_cpp import Llama
 from huggingface_hub import hf_hub_download
 from duckduckgo_search import DDGS
 from PIL import Image, ExifTags
+
+# Removido o import do Redis para compatibilidade com Windows
+# import redis
+from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
 
 # Configurações iniciais do NLTK (necessário apenas na primeira execução)
 nltk.download('punkt')
@@ -38,7 +41,6 @@ nltk.download('vader_lexicon')
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 sentiment_analyzer = SentimentIntensityAnalyzer()
-cache = TTLCache(maxsize=500, ttl=3600)
 
 LANGUAGE_MAP = {
     'Português': {'code': 'pt-BR', 'instruction': 'Responda em português brasileiro'},
@@ -54,6 +56,59 @@ DEFAULT_LOCAL_MODEL_DIR = "models"
 
 app = Flask(__name__)
 
+# ===== Cache simples em memória =====
+cache = {}
+
+def get_cached_response(query: str, lang: str, style: str) -> str:
+    key = f"response:{query}:{lang}:{style}"
+    return cache.get(key)
+
+def set_cached_response(query: str, lang: str, style: str, response_text: str, ttl: int = 3600) -> None:
+    key = f"response:{query}:{lang}:{style}"
+    cache[key] = response_text  # TTL não é implementado nesta versão
+
+# ===== Monitoramento com Prometheus =====
+REQUEST_COUNT = Counter('flask_request_count', 'Total de requisições', ['endpoint', 'method'])
+REQUEST_LATENCY = Histogram('flask_request_latency_seconds', 'Tempo de resposta', ['endpoint'])
+
+@app.before_request
+def before_request():
+    request.start_time = time.time()
+    REQUEST_COUNT.labels(request.path, request.method).inc()
+
+@app.after_request
+def after_request(response):
+    resp_time = time.time() - request.start_time
+    REQUEST_LATENCY.labels(request.path).observe(resp_time)
+    return response
+
+@app.route('/metrics')
+def metrics():
+    data = generate_latest()
+    return Response(data, mimetype=CONTENT_TYPE_LATEST)
+
+# ===== Pré-compilação dos padrões de regex para análise forense =====
+COMPILED_REGEX_PATTERNS = {
+    'ip': re.compile(r'\b(?:\d{1,3}\.){3}\d{1,3}\b'),
+    'ipv6': re.compile(r'\b(?:[A-Fa-f0-9]{1,4}:){7}[A-Fa-f0-9]{1,4}\b'),
+    'email': re.compile(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'),
+    'phone': re.compile(r'\+?\d[\d\s()-]{7,}\d'),
+    'url': re.compile(r'https?://(?:[-\w.]|(?:%[\da-fA-F]{2}))+'),
+    'mac': re.compile(r'\b(?:[0-9A-Fa-f]{2}[:-]){5}(?:[0-9A-Fa-f]{2})\b'),
+    'md5': re.compile(r'\b[a-fA-F0-9]{32}\b'),
+    'sha1': re.compile(r'\b[a-fA-F0-9]{40}\b'),
+    'sha256': re.compile(r'\b[a-fA-F0-9]{64}\b'),
+    'cve': re.compile(r'\bCVE-\d{4}-\d{4,7}\b'),
+    'imei': re.compile(r'\b\d{15}\b'),
+    'cpf': re.compile(r'\b\d{3}\.\d{3}\.\d{3}-\d{2}\b'),
+    'cnpj': re.compile(r'\b\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2}\b'),
+    'ssn': re.compile(r'\b\d{3}-\d{2}-\d{4}\b'),
+    'uuid': re.compile(r'\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b'),
+    'cc': re.compile(r'\b(?:\d[ -]*?){13,16}\b'),
+    'btc': re.compile(r'\b(?:[13][a-km-zA-HJ-NP-Z1-9]{25,34})\b'),
+}
+
+# ===== Funções de Download e Carregamento do Modelo =====
 def download_model() -> None:
     """
     Faz o download do modelo caso não esteja disponível localmente.
@@ -73,9 +128,7 @@ def download_model() -> None:
 def load_model() -> Llama:
     """
     Carrega o modelo neural. Se não existir localmente, faz o download.
-    Verifica se há GPU disponível usando GPUtil e, se houver, utiliza todas as camadas na GPU
-    (n_gpu_layers=-1) e aumenta o tamanho do lote (n_batch) para acelerar a inferência.
-    Caso contrário, usa uma configuração otimizada para a CPU.
+    Verifica se há GPU disponível e ajusta os parâmetros de inferência.
     """
     model_path = os.path.join(DEFAULT_LOCAL_MODEL_DIR, DEFAULT_MODEL_FILE)
     if not os.path.exists(model_path):
@@ -113,6 +166,7 @@ def load_model() -> Llama:
 
 model = load_model()
 
+# ===== Funções para Geração de Resposta e Validação de Idioma =====
 def build_messages(query: str, lang_config: dict, style: str) -> tuple[list, float]:
     """
     Constrói a lista de mensagens e define a temperatura de acordo com o estilo.
@@ -129,12 +183,17 @@ def build_messages(query: str, lang_config: dict, style: str) -> tuple[list, flo
     ]
     return messages, temperature
 
-@cached(cache)
 def generate_response(query: str, lang: str, style: str) -> str:
     """
     Gera uma resposta a partir da consulta, utilizando o modelo de linguagem.
+    Utiliza cache simples para respostas repetidas.
     """
     start_time = time.time()
+    cached_text = get_cached_response(query, lang, style)
+    if cached_text:
+        logger.info(f"✅ Resposta obtida do cache em {time.time() - start_time:.2f}s")
+        return cached_text
+
     lang_config = LANGUAGE_MAP.get(lang, LANGUAGE_MAP['Português'])
     messages, temperature = build_messages(query, lang_config, style)
     
@@ -148,6 +207,7 @@ def generate_response(query: str, lang: str, style: str) -> str:
         raw_response = response['choices'][0]['message']['content']
         final_response = validate_language(raw_response, lang_config)
         logger.info(f"✅ Resposta gerada em {time.time() - start_time:.2f}s")
+        set_cached_response(query, lang, style, final_response)
         return final_response
     except Exception as e:
         logger.error(f"❌ Erro ao gerar resposta: {e}")
@@ -185,77 +245,48 @@ def correct_language(text: str, lang_config: dict) -> str:
         logger.error(f"❌ Erro na correção de idioma: {e}")
         return text
 
+# ===== Função para Streaming de Respostas =====
+def streaming_response(text: str, chunk_size: int = 200):
+    """
+    Gera chunks de texto para streaming da resposta.
+    """
+    for i in range(0, len(text), chunk_size):
+        yield text[i:i+chunk_size]
+        time.sleep(0.1)  # Pequena pausa para simular o streaming
+
+# ===== Análise Forense e Processamento de Texto =====
 def advanced_forensic_analysis(text: str) -> dict:
     """
     Realiza uma análise forense aprimorada no texto fornecido, extraindo informações relevantes.
-    Foram adicionados diversos padrões de regex para simular técnicas de investigação.
+    Utiliza padrões de regex pré-compilados para maior eficiência.
     """
     forensic_info = {}
     try:
-        # Padrões já existentes
-        ip_pattern = re.compile(r'\b(?:\d{1,3}\.){3}\d{1,3}\b')
-        ipv6_pattern = re.compile(r'\b(?:[A-Fa-f0-9]{1,4}:){7}[A-Fa-f0-9]{1,4}\b')
-        email_pattern = re.compile(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}')
-        phone_pattern = re.compile(r'\+?\d[\d\s()-]{7,}\d')
-        url_pattern = re.compile(r'https?://(?:[-\w.]|(?:%[\da-fA-F]{2}))+')
-        mac_pattern = re.compile(r'\b(?:[0-9A-Fa-f]{2}[:-]){5}(?:[0-9A-Fa-f]{2})\b')
-        md5_pattern = re.compile(r'\b[a-fA-F0-9]{32}\b')
-        sha1_pattern = re.compile(r'\b[a-fA-F0-9]{40}\b')
-        sha256_pattern = re.compile(r'\b[a-fA-F0-9]{64}\b')
-        cve_pattern = re.compile(r'\bCVE-\d{4}-\d{4,7}\b')
-        # Padrões adicionais para investigação policial:
-        imei_pattern = re.compile(r'\b\d{15}\b')
-        cpf_pattern = re.compile(r'\b\d{3}\.\d{3}\.\d{3}-\d{2}\b')
-        # Novo: Padrão para CNPJ (formato XX.XXX.XXX/XXXX-XX)
-        cnpj_pattern = re.compile(r'\b\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2}\b')
-        # Novo: Padrão para SSN (formato 000-00-0000)
-        ssn_pattern = re.compile(r'\b\d{3}-\d{2}-\d{4}\b')
-        # Novo: Padrão para UUID/GUID
-        uuid_pattern = re.compile(r'\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b')
-        # Novo: Padrão para número de cartão de crédito (genérico, 13 a 16 dígitos, com ou sem separadores)
-        cc_pattern = re.compile(r'\b(?:\d[ -]*?){13,16}\b')
-        # Novo: Padrão para endereços Bitcoin (iniciando com 1 ou 3 e com 26 a 35 caracteres)
-        btc_pattern = re.compile(r'\b(?:[13][a-km-zA-HJ-NP-Z1-9]{25,34})\b')
-        
-        # Extração dos padrões
-        if (matches := ip_pattern.findall(text)):
-            forensic_info['Endereços IPv4'] = list(set(matches))
-        if (matches := ipv6_pattern.findall(text)):
-            forensic_info['Endereços IPv6'] = list(set(matches))
-        if (matches := email_pattern.findall(text)):
-            forensic_info['E-mails'] = list(set(matches))
-        if (matches := phone_pattern.findall(text)):
-            forensic_info['Telefones'] = list(set(matches))
-        if (matches := url_pattern.findall(text)):
-            forensic_info['URLs'] = list(set(matches))
-        if (matches := mac_pattern.findall(text)):
-            forensic_info['Endereços MAC'] = list(set(matches))
-        if (matches := md5_pattern.findall(text)):
-            forensic_info['Hashes MD5'] = list(set(matches))
-        if (matches := sha1_pattern.findall(text)):
-            forensic_info['Hashes SHA1'] = list(set(matches))
-        if (matches := sha256_pattern.findall(text)):
-            forensic_info['Hashes SHA256'] = list(set(matches))
-        if (matches := cve_pattern.findall(text)):
-            forensic_info['IDs CVE'] = list(set(matches))
-        if (matches := imei_pattern.findall(text)):
-            forensic_info['IMEI'] = list(set(matches))
-        if (matches := cpf_pattern.findall(text)):
-            forensic_info['CPF'] = list(set(matches))
-        if (matches := cnpj_pattern.findall(text)):
-            forensic_info['CNPJ'] = list(set(matches))
-        if (matches := ssn_pattern.findall(text)):
-            forensic_info['SSN'] = list(set(matches))
-        if (matches := uuid_pattern.findall(text)):
-            forensic_info['UUID'] = list(set(matches))
-        if (matches := cc_pattern.findall(text)):
-            forensic_info['Cartões de Crédito'] = list(set(matches))
-        if (matches := btc_pattern.findall(text)):
-            forensic_info['Endereço Bitcoin'] = list(set(matches))
-        
+        for key, pattern in COMPILED_REGEX_PATTERNS.items():
+            matches = pattern.findall(text)
+            if matches:
+                label = {
+                    'ip': 'Endereços IPv4',
+                    'ipv6': 'Endereços IPv6',
+                    'email': 'E-mails',
+                    'phone': 'Telefones',
+                    'url': 'URLs',
+                    'mac': 'Endereços MAC',
+                    'md5': 'Hashes MD5',
+                    'sha1': 'Hashes SHA1',
+                    'sha256': 'Hashes SHA256',
+                    'cve': 'IDs CVE',
+                    'imei': 'IMEI',
+                    'cpf': 'CPF',
+                    'cnpj': 'CNPJ',
+                    'ssn': 'SSN',
+                    'uuid': 'UUID',
+                    'cc': 'Cartões de Crédito',
+                    'btc': 'Endereço Bitcoin',
+                }.get(key, key)
+                forensic_info[label] = list(set(matches))
     except Exception as e:
         logger.error(f"❌ Erro durante a análise forense: {e}")
-    
     return forensic_info
 
 def convert_to_degrees(value) -> float:
@@ -308,15 +339,10 @@ def analyze_image_metadata(url: str) -> dict:
         logger.error(f"❌ Erro ao analisar metadados da imagem: {e}")
         return {"error": str(e)}
 
-# === Modo de Investigação Aprimorado com Métodos Policiais ===
-
+# ===== Funcionalidades de Investigação Online =====
 def perform_search(query: str, search_type: str, max_results: int) -> list:
     """
     Realiza uma busca usando DuckDuckGo Search para o tipo especificado.
-    'search_type' pode ser:
-      - 'web': para sites;
-      - 'news': para notícias;
-      - 'leaked': para dados vazados (busca por "{query} leaked").
     """
     try:
         with DDGS() as ddgs:
@@ -335,7 +361,6 @@ def perform_search(query: str, search_type: str, max_results: int) -> list:
 def format_search_results(results: list, section_title: str) -> tuple:
     """
     Formata os resultados em texto e em uma tabela HTML.
-    Retorna (formatted_text, links_table, info_message).
     """
     count = len(results)
     info_message = f"Apenas {count} resultados encontrados para '{section_title}'.<br>" if count < 1 else ""
@@ -358,13 +383,7 @@ def format_search_results(results: list, section_title: str) -> tuple:
 def process_investigation(target: str, sites_meta: int = 5, investigation_focus: str = "",
                           search_news: bool = False, search_leaked_data: bool = False) -> str:
     """
-    Processa uma investigação online com base no alvo informado.
-    Realiza buscas paralelas para:
-      - Sites (busca padrão)
-      - Notícias (se search_news=True)
-      - Dados Vazados (se search_leaked_data=True)
-    Organiza os resultados em seções e gera um relatório detalhado.
-    Agora, o prompt utiliza métodos policiais, orientando o perito a empregar técnicas de investigação utilizadas por forças policiais.
+    Processa uma investigação online com base no alvo informado, realizando buscas paralelas e gerando um relatório.
     """
     logger.info(f"🔍 Iniciando investigação para: {repr(target)}")
     if not target.strip():
@@ -401,7 +420,7 @@ def process_investigation(target: str, sites_meta: int = 5, investigation_focus:
     forensic_analysis = advanced_forensic_analysis(combined_results_text)
     forensic_details = "<br>".join(f"{k}: {v}" for k, v in forensic_analysis.items() if v)
     
-    # Monta o prompt para a investigação, incluindo foco (se informado) e resultados
+    # Monta o prompt para a investigação
     investigation_prompt = f"Analise os dados obtidos sobre '{target}'"
     if investigation_focus:
         investigation_prompt += f", focando em '{investigation_focus}'"
@@ -421,7 +440,6 @@ def process_investigation(target: str, sites_meta: int = 5, investigation_focus:
             stop=["</s>"]
         )
         report = investigation_response['choices'][0]['message']['content']
-        # Consolida as tabelas de links de todas as seções
         links_combined = links_web + (links_news if links_news else "") + (links_leaked if links_leaked else "")
         final_report = report + "<br><br>Links encontrados:<br>" + links_combined
         return final_report
@@ -431,8 +449,8 @@ def process_investigation(target: str, sites_meta: int = 5, investigation_focus:
 
 # ========================================
 
-# Definindo o template HTML diretamente como string
-index_html ="""
+# Definindo o template HTML diretamente como string (atualize conforme necessário)
+index_html = """
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -587,7 +605,6 @@ index_html ="""
       font-size: 12px;
       border-top: 1px solid #374151;
     }
-    
     /* Estilos para o modal de configurações */
     #configModal {
       display: none;
@@ -637,7 +654,6 @@ index_html ="""
       cursor: pointer;
       margin-right: 10px;
     }
-    
     /* Estilo para o botão de configurações flutuante */
     #configToggleButton {
       position: fixed;
@@ -653,6 +669,21 @@ index_html ="""
       font-size: 24px;
       z-index: 1001;
       box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    }
+    /* Botão de limpar chat */
+    #clearChat {
+      margin-top: 10px;
+      padding: 10px 20px;
+      background-color: #ef4444;
+      color: #fff;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: background-color 0.2s;
+    }
+    #clearChat:hover {
+      background-color: #dc2626;
     }
   </style>
   <!-- Estilo personalizado atualizado via configurações -->
@@ -693,6 +724,9 @@ index_html ="""
             <option value="Técnico">Técnico</option>
             <option value="Livre">Livre</option>
           </select>
+          <label>
+            <input type="checkbox" id="streaming" name="streaming"> Ativar Streaming
+          </label>
         </div>
         <!-- Opções adicionais para investigação -->
         <div class="form-options" id="investigationOptions">
@@ -708,6 +742,8 @@ index_html ="""
           </label>
         </div>
       </form>
+      <!-- Botão para limpar o chat -->
+      <button id="clearChat">Limpar Chat</button>
     </div>
   </div>
   <footer>© 2025 Cyber Assistant</footer>
@@ -785,6 +821,16 @@ index_html ="""
       windowElement.scrollTop = windowElement.scrollHeight;
     }
     
+    // Função para adicionar mensagem de tempo de resposta
+    function appendTimer(time) {
+      appendMessage("chatWindow", "ai", `<em>Tempo de resposta: ${time.toFixed(2)} segundos</em>`);
+    }
+    
+    // Função para limpar o chat
+    document.getElementById("clearChat").addEventListener("click", function() {
+      document.getElementById("chatWindow").innerHTML = "";
+    });
+    
     // Exibe o spinner de carregamento
     function showSpinner() {
       document.getElementById("loadingSpinner").style.display = "block";
@@ -814,12 +860,55 @@ index_html ="""
       formData.append('search_news', document.getElementById("search_news").checked);
       formData.append('search_leaked_data', document.getElementById("search_leaked_data").checked);
       
+      const streaming = document.getElementById("streaming").checked;
       showSpinner();
-      fetch('/ask', { method: 'POST', body: formData })
-      .then(res => res.json())
+      
+      // Registra o tempo de início
+      const startTime = Date.now();
+      
+      // Define a URL com parâmetro 'stream' se streaming estiver ativado
+      const url = streaming ? '/ask?stream=true' : '/ask';
+      
+      fetch(url, { method: 'POST', body: formData })
+      .then(response => {
+        if (streaming) {
+          // Cria uma única mensagem para a resposta da IA e atualiza o conteúdo aos poucos
+          const chatWindow = document.getElementById("chatWindow");
+          const aiMessageDiv = document.createElement('div');
+          aiMessageDiv.className = 'message ai';
+          const bubbleDiv = document.createElement('div');
+          bubbleDiv.className = 'bubble';
+          aiMessageDiv.appendChild(bubbleDiv);
+          chatWindow.appendChild(aiMessageDiv);
+          chatWindow.scrollTop = chatWindow.scrollHeight;
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          function readStream() {
+            return reader.read().then(({ done, value }) => {
+              if (done) {
+                hideSpinner();
+                const elapsed = (Date.now() - startTime) / 1000;
+                appendTimer(elapsed);
+                return;
+              }
+              const chunk = decoder.decode(value);
+              bubbleDiv.innerHTML += chunk;
+              chatWindow.scrollTop = chatWindow.scrollHeight;
+              return readStream();
+            });
+          }
+          return readStream();
+        } else {
+          return response.json();
+        }
+      })
       .then(data => {
-        hideSpinner();
-        appendMessage("chatWindow", "ai", data.response || "Erro: " + data.error);
+        if (!streaming) {
+          hideSpinner();
+          const elapsed = (Date.now() - startTime) / 1000;
+          appendMessage("chatWindow", "ai", data.response || "Erro: " + data.error);
+          appendTimer(elapsed);
+        }
       })
       .catch(err => {
         hideSpinner();
@@ -880,8 +969,8 @@ def index():
 @app.route('/ask', methods=['POST'])
 def ask():
     """
-    Endpoint que processa as requisições em três modos:
-      - Chat
+    Endpoint que processa as requisições nos modos:
+      - Chat (com opção de streaming de resposta)
       - Investigação
       - Metadados
     """
@@ -916,7 +1005,12 @@ def ask():
     else:  # Modo Chat
         try:
             response_text = generate_response(user_input, lang, style)
-            return jsonify({'response': response_text})
+            # Verifica se o streaming foi solicitado via parâmetro 'stream'
+            stream = request.args.get('stream', 'false').lower() == 'true'
+            if stream and len(response_text) > 200:
+                return Response(streaming_response(response_text), mimetype='text/plain')
+            else:
+                return jsonify({'response': response_text})
         except Exception as e:
             logger.error(f"❌ Erro no modo Chat: {e}")
             return jsonify({'error': str(e)}), 500
@@ -932,7 +1026,6 @@ def internal_error(e):
 def ensure_localtunnel_installed():
     """
     Verifica se o LocalTunnel está instalado; caso não esteja, tenta instalá-lo via npm.
-    Se o npm não estiver disponível, informa ao usuário para que instale manualmente.
     """
     try:
         result = subprocess.run("which lt", shell=True, capture_output=True, text=True)
@@ -956,7 +1049,6 @@ def get_tunnel_password():
     Obtém e exibe o tunnel password (IP público) utilizando o comando curl.
     """
     try:
-        # Aguarda alguns segundos para garantir que o LocalTunnel já esteja ativo
         time.sleep(3)
         result = subprocess.run("curl https://loca.lt/mytunnelpassword", shell=True, capture_output=True, text=True)
         password = result.stdout.strip()
@@ -974,7 +1066,6 @@ if __name__ == '__main__':
     # Inicia o LocalTunnel para expor a porta 5000.
     def read_lt_output(process):
         for line in process.stdout:
-            # Exibe a URL pública gerada pelo LocalTunnel
             if "your url is:" in line.lower():
                 print("LocalTunnel URL:", line.strip())
             else:
@@ -983,12 +1074,9 @@ if __name__ == '__main__':
     lt_command = "lt --port 5000"
     print("Iniciando LocalTunnel para expor a aplicação na porta 5000...")
     lt_process = subprocess.Popen(lt_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    
-    # Inicia uma thread para exibir a saída do LocalTunnel
     lt_thread = threading.Thread(target=read_lt_output, args=(lt_process,), daemon=True)
     lt_thread.start()
     
-    # Obtém e exibe o tunnel password
     get_tunnel_password()
     
     print("Executando a aplicação Flask...")
