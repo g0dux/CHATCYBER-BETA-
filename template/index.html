@@ -152,7 +152,6 @@
       font-size: 12px;
       border-top: 1px solid #374151;
     }
-    
     /* Estilos para o modal de configurações */
     #configModal {
       display: none;
@@ -202,7 +201,6 @@
       cursor: pointer;
       margin-right: 10px;
     }
-    
     /* Estilo para o botão de configurações flutuante */
     #configToggleButton {
       position: fixed;
@@ -218,6 +216,21 @@
       font-size: 24px;
       z-index: 1001;
       box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    }
+    /* Botão de limpar chat */
+    #clearChat {
+      margin-top: 10px;
+      padding: 10px 20px;
+      background-color: #ef4444;
+      color: #fff;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: background-color 0.2s;
+    }
+    #clearChat:hover {
+      background-color: #dc2626;
     }
   </style>
   <!-- Estilo personalizado atualizado via configurações -->
@@ -258,6 +271,9 @@
             <option value="Técnico">Técnico</option>
             <option value="Livre">Livre</option>
           </select>
+          <label>
+            <input type="checkbox" id="streaming" name="streaming"> Ativar Streaming
+          </label>
         </div>
         <!-- Opções adicionais para investigação -->
         <div class="form-options" id="investigationOptions">
@@ -273,6 +289,8 @@
           </label>
         </div>
       </form>
+      <!-- Botão para limpar o chat -->
+      <button id="clearChat">Limpar Chat</button>
     </div>
   </div>
   <footer>© 2025 Cyber Assistant</footer>
@@ -350,6 +368,16 @@
       windowElement.scrollTop = windowElement.scrollHeight;
     }
     
+    // Função para adicionar mensagem de tempo de resposta
+    function appendTimer(time) {
+      appendMessage("chatWindow", "ai", `<em>Tempo de resposta: ${time.toFixed(2)} segundos</em>`);
+    }
+    
+    // Função para limpar o chat
+    document.getElementById("clearChat").addEventListener("click", function() {
+      document.getElementById("chatWindow").innerHTML = "";
+    });
+    
     // Exibe o spinner de carregamento
     function showSpinner() {
       document.getElementById("loadingSpinner").style.display = "block";
@@ -379,12 +407,55 @@
       formData.append('search_news', document.getElementById("search_news").checked);
       formData.append('search_leaked_data', document.getElementById("search_leaked_data").checked);
       
+      const streaming = document.getElementById("streaming").checked;
       showSpinner();
-      fetch('/ask', { method: 'POST', body: formData })
-      .then(res => res.json())
+      
+      // Registra o tempo de início
+      const startTime = Date.now();
+      
+      // Define a URL com parâmetro 'stream' se streaming estiver ativado
+      const url = streaming ? '/ask?stream=true' : '/ask';
+      
+      fetch(url, { method: 'POST', body: formData })
+      .then(response => {
+        if (streaming) {
+          // Cria uma única mensagem para a resposta da IA e atualiza o conteúdo aos poucos
+          const chatWindow = document.getElementById("chatWindow");
+          const aiMessageDiv = document.createElement('div');
+          aiMessageDiv.className = 'message ai';
+          const bubbleDiv = document.createElement('div');
+          bubbleDiv.className = 'bubble';
+          aiMessageDiv.appendChild(bubbleDiv);
+          chatWindow.appendChild(aiMessageDiv);
+          chatWindow.scrollTop = chatWindow.scrollHeight;
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          function readStream() {
+            return reader.read().then(({ done, value }) => {
+              if (done) {
+                hideSpinner();
+                const elapsed = (Date.now() - startTime) / 1000;
+                appendTimer(elapsed);
+                return;
+              }
+              const chunk = decoder.decode(value);
+              bubbleDiv.innerHTML += chunk;
+              chatWindow.scrollTop = chatWindow.scrollHeight;
+              return readStream();
+            });
+          }
+          return readStream();
+        } else {
+          return response.json();
+        }
+      })
       .then(data => {
-        hideSpinner();
-        appendMessage("chatWindow", "ai", data.response || "Erro: " + data.error);
+        if (!streaming) {
+          hideSpinner();
+          const elapsed = (Date.now() - startTime) / 1000;
+          appendMessage("chatWindow", "ai", data.response || "Erro: " + data.error);
+          appendTimer(elapsed);
+        }
       })
       .catch(err => {
         hideSpinner();
