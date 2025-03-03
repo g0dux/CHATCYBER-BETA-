@@ -34,6 +34,14 @@ from huggingface_hub import hf_hub_download
 from duckduckgo_search import DDGS
 from PIL import Image, ExifTags
 from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
+import tempfile  # Necessário para criação de arquivos temporários
+
+# Tenta importar pyshark para análise de PCAP (tráfego de rede)
+try:
+    import pyshark
+except ImportError:
+    pyshark = None
+    logging.warning("pyshark não está instalado. A funcionalidade de análise de tráfego de rede não estará disponível.")
 
 # Configurações iniciais do NLTK (necessário apenas na primeira execução)
 nltk.download('punkt')
@@ -442,6 +450,64 @@ def process_investigation(target: str, sites_meta: int = 5, investigation_focus:
     except Exception as e:
         logger.error(f"❌ Erro na investigação: {e}")
         return f"Erro na investigação: {e}"
+
+# ===== NOVA FUNÇÃO: Análise de Tráfego de Rede via PCAP =====
+def analyze_network_traffic(raw_pcap: bytes) -> dict:
+    """
+    Recebe os bytes de um arquivo PCAP, salva em um arquivo temporário e utiliza o pyshark
+    para analisar o tráfego de rede. Retorna um dicionário com informações como:
+      - Total de pacotes
+      - Contagem de protocolos
+      - IPs mais frequentes
+    """
+    if not pyshark:
+        return {"error": "pyshark não está instalado. Instale-o para utilizar esta funcionalidade."}
+    analysis_result = {}
+    try:
+        # Salva os bytes do PCAP em um arquivo temporário
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pcap") as tmp_file:
+            tmp_file.write(raw_pcap)
+            tmp_file_path = tmp_file.name
+        
+        # Utiliza pyshark para capturar os pacotes com apenas sumários (para otimização)
+        capture = pyshark.FileCapture(tmp_file_path, only_summaries=True)
+        packet_count = 0
+        protocols = {}
+        ip_addresses = {}
+        for packet in capture:
+            packet_count += 1
+            # Os sumários contêm campos como: No., Time, Source, Destination, Protocol, Length, Info.
+            protocol = packet.protocol
+            protocols[protocol] = protocols.get(protocol, 0) + 1
+            src = packet.source
+            dst = packet.destination
+            ip_addresses[src] = ip_addresses.get(src, 0) + 1
+            ip_addresses[dst] = ip_addresses.get(dst, 0) + 1
+        capture.close()
+        
+        analysis_result["total_packets"] = packet_count
+        analysis_result["protocols_count"] = protocols
+        top_ips = sorted(ip_addresses.items(), key=lambda x: x[1], reverse=True)[:5]
+        analysis_result["top_ip_addresses"] = top_ips
+        
+        os.remove(tmp_file_path)
+    except Exception as e:
+        analysis_result["error"] = str(e)
+    return analysis_result
+
+# ===== NOVO ENDPOINT: Análise de Tráfego de Rede =====
+@app.route('/network_analysis', methods=['POST'])
+def network_analysis():
+    """
+    Endpoint para análise de tráfego de rede.
+    Espera o upload de um arquivo PCAP e retorna um relatório com as informações extraídas.
+    """
+    if 'pcap_file' not in request.files:
+        return jsonify({'error': 'Arquivo PCAP não fornecido'}), 400
+    pcap_file = request.files['pcap_file']
+    raw_pcap = pcap_file.read()
+    result = analyze_network_traffic(raw_pcap)
+    return jsonify(result)
 
 # ========================================
 # Endpoints da Aplicação Web
