@@ -34,14 +34,15 @@ from huggingface_hub import hf_hub_download
 from duckduckgo_search import DDGS
 from PIL import Image, ExifTags
 from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
-import tempfile  # Necessário para criação de arquivos temporários
+import tempfile
+import multiprocessing
 
-# Tenta importar pyshark para análise de PCAP (tráfego de rede)
+# Tenta importar pyshark para análise de tráfego de rede
 try:
     import pyshark
 except ImportError:
     pyshark = None
-    logging.warning("pyshark não está instalado. A funcionalidade de análise de tráfego de rede não estará disponível.")
+    logging.warning("pyshark não está instalado. A funcionalidade de análise de rede não estará disponível.")
 
 # Configurações iniciais do NLTK (necessário apenas na primeira execução)
 nltk.download('punkt')
@@ -66,454 +67,7 @@ DEFAULT_LOCAL_MODEL_DIR = "models"
 
 app = Flask(__name__)
 
-# ===== Cache simples em memória =====
-cache = {}
-
-def get_cached_response(query: str, lang: str, style: str) -> str:
-    key = f"response:{query}:{lang}:{style}"
-    return cache.get(key)
-
-def set_cached_response(query: str, lang: str, style: str, response_text: str, ttl: int = 3600) -> None:
-    key = f"response:{query}:{lang}:{style}"
-    cache[key] = response_text  # TTL não é implementado nesta versão
-
-# ===== Monitoramento com Prometheus =====
-REQUEST_COUNT = Counter('flask_request_count', 'Total de requisições', ['endpoint', 'method'])
-REQUEST_LATENCY = Histogram('flask_request_latency_seconds', 'Tempo de resposta', ['endpoint'])
-
-@app.before_request
-def before_request():
-    request.start_time = time.time()
-    REQUEST_COUNT.labels(request.path, request.method).inc()
-
-@app.after_request
-def after_request(response):
-    resp_time = time.time() - request.start_time
-    REQUEST_LATENCY.labels(request.path).observe(resp_time)
-    return response
-
-@app.route('/metrics')
-def metrics():
-    data = generate_latest()
-    return Response(data, mimetype=CONTENT_TYPE_LATEST)
-
-# ===== Pré-compilação dos padrões de regex para análise forense =====
-COMPILED_REGEX_PATTERNS = {
-    'ip': re.compile(r'\b(?:\d{1,3}\.){3}\d{1,3}\b'),
-    'ipv6': re.compile(r'\b(?:[A-Fa-f0-9]{1,4}:){7}[A-Fa-f0-9]{1,4}\b'),
-    'email': re.compile(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'),
-    'phone': re.compile(r'\+?\d[\d\s()-]{7,}\d'),
-    'url': re.compile(r'https?://(?:[-\w.]|(?:%[\da-fA-F]{2}))+'),
-    'mac': re.compile(r'\b(?:[0-9A-Fa-f]{2}[:-]){5}(?:[0-9A-Fa-f]{2})\b'),
-    'md5': re.compile(r'\b[a-fA-F0-9]{32}\b'),
-    'sha1': re.compile(r'\b[a-fA-F0-9]{40}\b'),
-    'sha256': re.compile(r'\b[a-fA-F0-9]{64}\b'),
-    'cve': re.compile(r'\bCVE-\d{4}-\d{4,7}\b'),
-    'imei': re.compile(r'\b\d{15}\b'),
-    'cpf': re.compile(r'\b\d{3}\.\d{3}\.\d{3}-\d{2}\b'),
-    'cnpj': re.compile(r'\b\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2}\b'),
-    'ssn': re.compile(r'\b\d{3}-\d{2}-\d{4}\b'),
-    'uuid': re.compile(r'\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b'),
-    'cc': re.compile(r'\b(?:\d[ -]*?){13,16}\b'),
-    'btc': re.compile(r'\b(?:[13][a-km-zA-HJ-NP-Z1-9]{25,34})\b'),
-}
-
-# ===== Funções de Download e Carregamento do Modelo =====
-def download_model() -> None:
-    """
-    Faz o download do modelo caso não esteja disponível localmente.
-    """
-    try:
-        logger.info("⏬ Baixando Modelo...")
-        hf_hub_download(
-            repo_id=DEFAULT_MODEL_NAME,
-            filename=DEFAULT_MODEL_FILE,
-            local_dir=DEFAULT_LOCAL_MODEL_DIR,
-            resume_download=True
-        )
-    except Exception as e:
-        logger.error(f"❌ Falha no Download: {e}")
-        raise e
-
-def load_model() -> Llama:
-    """
-    Carrega o modelo neural. Se não existir localmente, faz o download.
-    Verifica se há GPU disponível e ajusta os parâmetros de inferência.
-    """
-    model_path = os.path.join(DEFAULT_LOCAL_MODEL_DIR, DEFAULT_MODEL_FILE)
-    if not os.path.exists(model_path):
-        download_model()
-    try:
-        # Configuração padrão para CPU
-        n_gpu_layers = 15
-        n_batch = 512
-
-        # Tenta detectar GPU usando GPUtil
-        try:
-            import GPUtil
-            gpus = GPUtil.getGPUs()
-            if gpus:
-                n_gpu_layers = -1   # Todas as camadas na GPU
-                n_batch = 1024      # Aumenta o tamanho do lote para melhor performance
-                logger.info("GPU detectada. Utilizando todas as camadas na GPU (n_gpu_layers=-1) e n_batch=1024.")
-            else:
-                logger.info("Nenhuma GPU detectada. Usando configuração otimizada para CPU.")
-        except Exception as gpu_error:
-            logger.warning(f"Erro na detecção da GPU: {gpu_error}. Configuração para CPU será utilizada.")
-
-        model = Llama(
-            model_path=model_path,
-            n_ctx=4096,
-            n_threads=psutil.cpu_count(logical=True),
-            n_gpu_layers=n_gpu_layers,
-            n_batch=n_batch
-        )
-        logger.info(f"🤖 Modelo Neural Carregado com n_gpu_layers={n_gpu_layers}, n_batch={n_batch} e n_threads={psutil.cpu_count(logical=True)}")
-        return model
-    except Exception as e:
-        logger.error(f"❌ Erro na Inicialização do Modelo: {e}")
-        raise e
-
-model = load_model()
-
-# ===== Funções para Geração de Resposta e Validação de Idioma =====
-def build_messages(query: str, lang_config: dict, style: str) -> tuple[list, float]:
-    """
-    Constrói a lista de mensagens e define a temperatura de acordo com o estilo.
-    """
-    if style == "Técnico":
-        system_instruction = f"{lang_config['instruction']}. Seja detalhado e técnico."
-        temperature = 0.7
-    else:
-        system_instruction = f"{lang_config['instruction']}. Responda de forma livre e criativa."
-        temperature = 0.9
-    messages = [
-        {"role": "system", "content": system_instruction},
-        {"role": "user", "content": query}
-    ]
-    return messages, temperature
-
-def generate_response(query: str, lang: str, style: str) -> str:
-    """
-    Gera uma resposta a partir da consulta, utilizando o modelo de linguagem.
-    Utiliza cache simples para respostas repetidas.
-    """
-    start_time = time.time()
-    cached_text = get_cached_response(query, lang, style)
-    if cached_text:
-        logger.info(f"✅ Resposta obtida do cache em {time.time() - start_time:.2f}s")
-        return cached_text
-
-    lang_config = LANGUAGE_MAP.get(lang, LANGUAGE_MAP['Português'])
-    messages, temperature = build_messages(query, lang_config, style)
-    
-    try:
-        response = model.create_chat_completion(
-            messages=messages,
-            temperature=temperature,
-            max_tokens=800,
-            stop=["</s>"]
-        )
-        raw_response = response['choices'][0]['message']['content']
-        final_response = validate_language(raw_response, lang_config)
-        logger.info(f"✅ Resposta gerada em {time.time() - start_time:.2f}s")
-        set_cached_response(query, lang, style, final_response)
-        return final_response
-    except Exception as e:
-        logger.error(f"❌ Erro ao gerar resposta: {e}")
-        return f"Erro ao gerar resposta: {e}"
-
-def validate_language(text: str, lang_config: dict) -> str:
-    """
-    Verifica se o texto está no idioma esperado; se não, corrige a linguagem.
-    """
-    try:
-        detected_lang = detect(text)
-        expected_lang = lang_config['code'].split('-')[0]
-        if detected_lang != expected_lang:
-            logger.info(f"Idioma detectado ({detected_lang}) difere do esperado ({expected_lang}). Corrigindo...")
-            return correct_language(text, lang_config)
-        return text
-    except Exception as e:
-        logger.warning(f"⚠️ Falha na detecção de idioma: {e}. Retornando texto original.")
-        return text
-
-def correct_language(text: str, lang_config: dict) -> str:
-    """
-    Corrige o idioma do texto utilizando o modelo para tradução.
-    """
-    try:
-        correction_prompt = f"Traduza para {lang_config['instruction']}:\n{text}"
-        corrected = model.create_chat_completion(
-            messages=[{"role": "user", "content": correction_prompt}],
-            temperature=0.3,
-            max_tokens=1000
-        )
-        corrected_text = corrected['choices'][0]['message']['content']
-        return f"[Traduzido]\n{corrected_text}"
-    except Exception as e:
-        logger.error(f"❌ Erro na correção de idioma: {e}")
-        return text
-
-# ===== Função para Streaming de Respostas =====
-def streaming_response(text: str, chunk_size: int = 200):
-    """
-    Gera chunks de texto para streaming da resposta.
-    """
-    for i in range(0, len(text), chunk_size):
-        yield text[i:i+chunk_size]
-        time.sleep(0.1)
-
-# ===== Análise Forense e Processamento de Texto =====
-def advanced_forensic_analysis(text: str) -> dict:
-    """
-    Realiza uma análise forense aprimorada no texto fornecido, extraindo informações relevantes.
-    """
-    forensic_info = {}
-    try:
-        for key, pattern in COMPILED_REGEX_PATTERNS.items():
-            matches = pattern.findall(text)
-            if matches:
-                label = {
-                    'ip': 'Endereços IPv4',
-                    'ipv6': 'Endereços IPv6',
-                    'email': 'E-mails',
-                    'phone': 'Telefones',
-                    'url': 'URLs',
-                    'mac': 'Endereços MAC',
-                    'md5': 'Hashes MD5',
-                    'sha1': 'Hashes SHA1',
-                    'sha256': 'Hashes SHA256',
-                    'cve': 'IDs CVE',
-                    'imei': 'IMEI',
-                    'cpf': 'CPF',
-                    'cnpj': 'CNPJ',
-                    'ssn': 'SSN',
-                    'uuid': 'UUID',
-                    'cc': 'Cartões de Crédito',
-                    'btc': 'Endereço Bitcoin',
-                }.get(key, key)
-                forensic_info[label] = list(set(matches))
-    except Exception as e:
-        logger.error(f"❌ Erro durante a análise forense: {e}")
-    return forensic_info
-
-def convert_to_degrees(value) -> float:
-    """
-    Converte coordenadas GPS no formato de frações para graus decimais.
-    """
-    try:
-        d, m, s = value
-        degrees = d[0] / d[1]
-        minutes = m[0] / m[1] / 60
-        seconds = s[0] / s[1] / 3600
-        return degrees + minutes + seconds
-    except Exception as e:
-        logger.error(f"❌ Erro na conversão de coordenadas: {e}")
-        raise e
-
-def analyze_image_metadata(url: str) -> dict:
-    """
-    Obtém e analisa os metadados EXIF de uma imagem a partir de sua URL.
-    """
-    try:
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        image_data = response.content
-        image = Image.open(io.BytesIO(image_data))
-        exif = image._getexif()
-        meta = {}
-        if exif:
-            for tag_id, value in exif.items():
-                tag = Image.ExifTags.TAGS.get(tag_id, tag_id)
-                meta[tag] = value
-            if "GPSInfo" in meta:
-                gps_info = meta["GPSInfo"]
-                try:
-                    lat = convert_to_degrees(gps_info.get(2))
-                    if gps_info.get(1) != "N":
-                        lat = -lat
-                    lon = convert_to_degrees(gps_info.get(4))
-                    if gps_info.get(3) != "E":
-                        lon = -lon
-                    meta["GPS Coordinates"] = (
-                        f"{lat}, {lon} (Google Maps: https://maps.google.com/?q={lat},{lon})"
-                    )
-                except Exception as e:
-                    meta["GPS Extraction Error"] = str(e)
-        else:
-            meta["info"] = "Nenhum metadado EXIF encontrado."
-        return meta
-    except Exception as e:
-        logger.error(f"❌ Erro ao analisar metadados da imagem: {e}")
-        return {"error": str(e)}
-
-# ===== Funcionalidades de Investigação Online =====
-def perform_search(query: str, search_type: str, max_results: int) -> list:
-    """
-    Realiza uma busca usando DuckDuckGo Search para o tipo especificado.
-    """
-    try:
-        with DDGS() as ddgs:
-            if search_type == 'web':
-                return list(ddgs.text(keywords=query, max_results=max_results))
-            elif search_type == 'news':
-                return list(ddgs.news(keywords=query, max_results=max_results))
-            elif search_type == 'leaked':
-                return list(ddgs.text(keywords=f"{query} leaked", max_results=max_results))
-            else:
-                return []
-    except Exception as e:
-        logger.error(f"Erro na busca ({search_type}): {e}")
-        return []
-
-def format_search_results(results: list, section_title: str) -> tuple:
-    """
-    Formata os resultados em texto e em uma tabela HTML.
-    """
-    count = len(results)
-    info_message = f"Apenas {count} resultados encontrados para '{section_title}'.<br>" if count < 1 else ""
-    formatted_text = "<br>".join(
-        f"• {res.get('title', 'Sem título')}<br>&nbsp;&nbsp;{res.get('href', 'Sem link')}<br>&nbsp;&nbsp;{res.get('body', '')}"
-        for res in results
-    )
-    links_table = (
-        f"<h3>{section_title}</h3>"
-        "<table border='1' style='width:100%; border-collapse: collapse; text-align: left;'>"
-        "<thead><tr><th>Título</th><th>Link</th></tr></thead><tbody>"
-    )
-    for res in results:
-        title = res.get('title', 'Sem título')
-        href = res.get('href', 'Sem link')
-        links_table += f"<tr><td>{title}</td><td><a href='{href}' target='_blank'>{href}</a></td></tr>"
-    links_table += "</tbody></table>"
-    return formatted_text, links_table, info_message
-
-def process_investigation(target: str, sites_meta: int = 5, investigation_focus: str = "",
-                          search_news: bool = False, search_leaked_data: bool = False) -> str:
-    """
-    Processa uma investigação online com base no alvo informado, realizando buscas paralelas e gerando um relatório.
-    """
-    logger.info(f"🔍 Iniciando investigação para: {repr(target)}")
-    if not target.strip():
-        return "Erro: Por favor, insira um alvo para investigação."
-    
-    search_tasks = {}
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        search_tasks['web'] = executor.submit(perform_search, target, 'web', sites_meta)
-        if search_news:
-            search_tasks['news'] = executor.submit(perform_search, target, 'news', sites_meta)
-        if search_leaked_data:
-            search_tasks['leaked'] = executor.submit(perform_search, target, 'leaked', sites_meta)
-    
-    results_web = search_tasks['web'].result() if 'web' in search_tasks else []
-    results_news = search_tasks['news'].result() if 'news' in search_tasks else []
-    results_leaked = search_tasks['leaked'].result() if 'leaked' in search_tasks else []
-    
-    formatted_web, links_web, info_web = format_search_results(results_web, "Sites")
-    formatted_news, links_news, info_news = ("", "", "") if not results_news else format_search_results(results_news, "Notícias")
-    formatted_leaked, links_leaked, info_leaked = ("", "", "") if not results_leaked else format_search_results(results_leaked, "Dados Vazados")
-    
-    combined_results_text = ""
-    if formatted_web:
-        combined_results_text += "<br><br>Resultados de Sites:<br>" + formatted_web
-    if formatted_news:
-        combined_results_text += "<br><br>Notícias:<br>" + formatted_news
-    if formatted_leaked:
-        combined_results_text += "<br><br>Dados Vazados:<br>" + formatted_leaked
-    
-    forensic_analysis = advanced_forensic_analysis(combined_results_text)
-    forensic_details = "<br>".join(f"{k}: {v}" for k, v in forensic_analysis.items() if v)
-    
-    investigation_prompt = f"Analise os dados obtidos sobre '{target}'"
-    if investigation_focus:
-        investigation_prompt += f", focando em '{investigation_focus}'"
-    investigation_prompt += "<br>" + combined_results_text
-    if forensic_details:
-        investigation_prompt += "<br><br>Análise Forense Extraída:<br>" + forensic_details
-    investigation_prompt += "<br><br>Elabore um relatório detalhado com ligações, riscos e informações relevantes."
-    
-    try:
-        investigation_response = model.create_chat_completion(
-            messages=[
-                {"role": "system", "content": "Você é um perito policial e forense digital, experiente em métodos policiais de investigação. Utilize técnicas de análise de evidências, protocolos forenses e investigação digital para identificar padrões, rastrear conexões e coletar evidências relevantes. Seja minucioso, preciso e detalhado."},
-                {"role": "user", "content": investigation_prompt}
-            ],
-            temperature=0.7,
-            max_tokens=1000,
-            stop=["</s>"]
-        )
-        report = investigation_response['choices'][0]['message']['content']
-        links_combined = links_web + (links_news if links_news else "") + (links_leaked if links_leaked else "")
-        final_report = report + "<br><br>Links encontrados:<br>" + links_combined
-        return final_report
-    except Exception as e:
-        logger.error(f"❌ Erro na investigação: {e}")
-        return f"Erro na investigação: {e}"
-
-# ===== NOVA FUNÇÃO: Análise de Tráfego de Rede via PCAP =====
-def analyze_network_traffic(raw_pcap: bytes) -> dict:
-    """
-    Recebe os bytes de um arquivo PCAP, salva em um arquivo temporário e utiliza o pyshark
-    para analisar o tráfego de rede. Retorna um dicionário com informações como:
-      - Total de pacotes
-      - Contagem de protocolos
-      - IPs mais frequentes
-    """
-    if not pyshark:
-        return {"error": "pyshark não está instalado. Instale-o para utilizar esta funcionalidade."}
-    analysis_result = {}
-    try:
-        # Salva os bytes do PCAP em um arquivo temporário
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pcap") as tmp_file:
-            tmp_file.write(raw_pcap)
-            tmp_file_path = tmp_file.name
-        
-        # Utiliza pyshark para capturar os pacotes com apenas sumários (para otimização)
-        capture = pyshark.FileCapture(tmp_file_path, only_summaries=True)
-        packet_count = 0
-        protocols = {}
-        ip_addresses = {}
-        for packet in capture:
-            packet_count += 1
-            # Os sumários contêm campos como: No., Time, Source, Destination, Protocol, Length, Info.
-            protocol = packet.protocol
-            protocols[protocol] = protocols.get(protocol, 0) + 1
-            src = packet.source
-            dst = packet.destination
-            ip_addresses[src] = ip_addresses.get(src, 0) + 1
-            ip_addresses[dst] = ip_addresses.get(dst, 0) + 1
-        capture.close()
-        
-        analysis_result["total_packets"] = packet_count
-        analysis_result["protocols_count"] = protocols
-        top_ips = sorted(ip_addresses.items(), key=lambda x: x[1], reverse=True)[:5]
-        analysis_result["top_ip_addresses"] = top_ips
-        
-        os.remove(tmp_file_path)
-    except Exception as e:
-        analysis_result["error"] = str(e)
-    return analysis_result
-
-# ===== NOVO ENDPOINT: Análise de Tráfego de Rede =====
-@app.route('/network_analysis', methods=['POST'])
-def network_analysis():
-    """
-    Endpoint para análise de tráfego de rede.
-    Espera o upload de um arquivo PCAP e retorna um relatório com as informações extraídas.
-    """
-    if 'pcap_file' not in request.files:
-        return jsonify({'error': 'Arquivo PCAP não fornecido'}), 400
-    pcap_file = request.files['pcap_file']
-    raw_pcap = pcap_file.read()
-    result = analyze_network_traffic(raw_pcap)
-    return jsonify(result)
-
-# ========================================
-# Endpoints da Aplicação Web
-# ========================================
-
-# Página principal
+# ===== Endpoint da Página Principal =====
 index_html = """
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -1027,14 +581,172 @@ index_html = """
 def index():
     return render_template_string(index_html)
 
+# ===== Cache simples em memória =====
+cache = {}
+
+def get_cached_response(query: str, lang: str, style: str) -> str:
+    key = f"response:{query}:{lang}:{style}"
+    return cache.get(key)
+
+def set_cached_response(query: str, lang: str, style: str, response_text: str, ttl: int = 3600) -> None:
+    key = f"response:{query}:{lang}:{style}"
+    cache[key] = response_text  # TTL não implementado nesta versão
+
+# ===== Monitoramento com Prometheus =====
+REQUEST_COUNT = Counter('flask_request_count', 'Total de requisições', ['endpoint', 'method'])
+REQUEST_LATENCY = Histogram('flask_request_latency_seconds', 'Tempo de resposta', ['endpoint'])
+
+@app.before_request
+def before_request():
+    request.start_time = time.time()
+    REQUEST_COUNT.labels(request.path, request.method).inc()
+
+@app.after_request
+def after_request(response):
+    resp_time = time.time() - request.start_time
+    REQUEST_LATENCY.labels(request.path).observe(resp_time)
+    return response
+
+@app.route('/metrics')
+def metrics():
+    data = generate_latest()
+    return Response(data, mimetype=CONTENT_TYPE_LATEST)
+
+# ===== Pré-compilação dos padrões de regex para análise forense =====
+COMPILED_REGEX_PATTERNS = {
+    'ip': re.compile(r'\b(?:\d{1,3}\.){3}\d{1,3}\b'),
+    'ipv6': re.compile(r'\b(?:[A-Fa-f0-9]{1,4}:){7}[A-Fa-f0-9]{1,4}\b'),
+    'email': re.compile(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'),
+    'phone': re.compile(r'\+?\d[\d\s()-]{7,}\d'),
+    'url': re.compile(r'https?://(?:[-\w.]|(?:%[\da-fA-F]{2}))+'),
+    'mac': re.compile(r'\b(?:[0-9A-Fa-f]{2}[:-]){5}(?:[0-9A-Fa-f]{2})\b'),
+    'md5': re.compile(r'\b[a-fA-F0-9]{32}\b'),
+    'sha1': re.compile(r'\b[a-fA-F0-9]{40}\b'),
+    'sha256': re.compile(r'\b[a-fA-F0-9]{64}\b'),
+    'cve': re.compile(r'\bCVE-\d{4}-\d{4,7}\b'),
+    'imei': re.compile(r'\b\d{15}\b'),
+    'cpf': re.compile(r'\b\d{3}\.\d{3}\.\d{3}-\d{2}\b'),
+    'cnpj': re.compile(r'\b\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2}\b'),
+    'ssn': re.compile(r'\b\d{3}-\d{2}-\d{4}\b'),
+    'uuid': re.compile(r'\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b'),
+    'cc': re.compile(r'\b(?:\d[ -]*?){13,16}\b'),
+    'btc': re.compile(r'\b(?:[13][a-km-zA-HJ-NP-Z1-9]{25,34})\b'),
+}
+
+# ===== Funções de Download e Carregamento do Modelo =====
+def download_model() -> None:
+    try:
+        logger.info("⏬ Baixando Modelo...")
+        hf_hub_download(
+            repo_id=DEFAULT_MODEL_NAME,
+            filename=DEFAULT_MODEL_FILE,
+            local_dir=DEFAULT_LOCAL_MODEL_DIR,
+            resume_download=True
+        )
+    except Exception as e:
+        logger.error(f"❌ Falha no Download: {e}")
+        raise e
+
+def load_model() -> Llama:
+    model_path = os.path.join(DEFAULT_LOCAL_MODEL_DIR, DEFAULT_MODEL_FILE)
+    if not os.path.exists(model_path):
+        download_model()
+    try:
+        n_gpu_layers = 15
+        n_batch = 512
+        try:
+            import GPUtil
+            gpus = GPUtil.getGPUs()
+            if gpus:
+                n_gpu_layers = -1
+                n_batch = 1024
+                logger.info("GPU detectada. Utilizando todas as camadas na GPU (n_gpu_layers=-1) e n_batch=1024.")
+            else:
+                logger.info("Nenhuma GPU detectada. Usando configuração otimizada para CPU.")
+        except Exception as gpu_error:
+            logger.warning(f"Erro na detecção da GPU: {gpu_error}. Configuração para CPU será utilizada.")
+        model = Llama(
+            model_path=model_path,
+            n_ctx=4096,
+            n_threads=psutil.cpu_count(logical=True),
+            n_gpu_layers=n_gpu_layers,
+            n_batch=n_batch
+        )
+        logger.info(f"🤖 Modelo Neural Carregado com n_gpu_layers={n_gpu_layers}, n_batch={n_batch} e n_threads={psutil.cpu_count(logical=True)}")
+        return model
+    except Exception as e:
+        logger.error(f"❌ Erro na Inicialização do Modelo: {e}")
+        raise e
+
+model = load_model()
+
+# ===== Funções para Geração de Resposta e Validação de Idioma =====
+def build_messages(query: str, lang_config: dict, style: str) -> tuple[list, float]:
+    if style == "Técnico":
+        system_instruction = f"{lang_config['instruction']}. Seja detalhado e técnico."
+        temperature = 0.7
+    else:
+        system_instruction = f"{lang_config['instruction']}. Responda de forma livre e criativa."
+        temperature = 0.9
+    messages = [
+        {"role": "system", "content": system_instruction},
+        {"role": "user", "content": query}
+    ]
+    return messages, temperature
+
+def generate_response(query: str, lang: str, style: str) -> str:
+    start_time = time.time()
+    cached_text = get_cached_response(query, lang, style)
+    if cached_text:
+        logger.info(f"✅ Resposta obtida do cache em {time.time() - start_time:.2f}s")
+        return cached_text
+    lang_config = LANGUAGE_MAP.get(lang, LANGUAGE_MAP['Português'])
+    messages, temperature = build_messages(query, lang_config, style)
+    try:
+        response = model.create_chat_completion(
+            messages=messages,
+            temperature=temperature,
+            max_tokens=800,
+            stop=["</s>"]
+        )
+        raw_response = response['choices'][0]['message']['content']
+        final_response = validate_language(raw_response, lang_config)
+        logger.info(f"✅ Resposta gerada em {time.time() - start_time:.2f}s")
+        set_cached_response(query, lang, style, final_response)
+        return final_response
+    except Exception as e:
+        logger.error(f"❌ Erro ao gerar resposta: {e}")
+        return f"Erro ao gerar resposta: {e}"
+
+def validate_language(text: str, lang_config: dict) -> str:
+    try:
+        detected_lang = detect(text)
+        expected_lang = lang_config['code'].split('-')[0]
+        if detected_lang != expected_lang:
+            logger.info(f"Idioma detectado ({detected_lang}) difere do esperado ({expected_lang}). Corrigindo...")
+            return correct_language(text, lang_config)
+        return text
+    except Exception as e:
+        logger.warning(f"⚠️ Falha na detecção de idioma: {e}. Retornando texto original.")
+        return text
+
+def correct_language(text: str, lang_config: dict) -> str:
+    try:
+        correction_prompt = f"Traduza para {lang_config['instruction']}:\n{text}"
+        corrected = model.create_chat_completion(
+            messages=[{"role": "user", "content": correction_prompt}],
+            temperature=0.3,
+            max_tokens=1000
+        )
+        corrected_text = corrected['choices'][0]['message']['content']
+        return f"[Traduzido]\n{corrected_text}"
+    except Exception as e:
+        logger.error(f"❌ Erro na correção de idioma: {e}")
+        return text
+
+# ===== Endpoint /ask para chat com a IA =====
 @app.route('/ask', methods=['POST'])
 def ask():
-    """
-    Endpoint que processa as requisições nos modos:
-      - Chat (com opção de streaming de resposta)
-      - Investigação
-      - Metadados
-    """
     user_input = request.form.get('user_input', '')
     mode = request.form.get('mode', 'Chat')
     lang = request.form.get('language', 'Português')
@@ -1051,7 +763,7 @@ def ask():
             response_text = process_investigation(user_input, sites_meta, investigation_focus, search_news, search_leaked_data)
             return jsonify({'response': response_text})
         except Exception as e:
-            logger.error(f"❌ Erro no modo Investigação: {e}")
+            logger.error(f"Erro no modo Investigação: {e}")
             return jsonify({'error': str(e)}), 500
     elif mode == "Metadados":
         if not user_input.strip():
@@ -1061,26 +773,191 @@ def ask():
             formatted_meta = "<br>".join(f"{k}: {v}" for k, v in meta.items())
             return jsonify({'response': formatted_meta})
         except Exception as e:
-            logger.error(f"❌ Erro no modo Metadados: {e}")
+            logger.error(f"Erro no modo Metadados: {e}")
             return jsonify({'error': str(e)}), 500
     else:  # Modo Chat
         try:
             response_text = generate_response(user_input, lang, style)
-            stream = request.args.get('stream', 'false').lower() == 'true'
-            if stream and len(response_text) > 200:
-                return Response(streaming_response(response_text), mimetype='text/plain')
-            else:
-                return jsonify({'response': response_text})
+            return jsonify({'response': response_text})
         except Exception as e:
-            logger.error(f"❌ Erro no modo Chat: {e}")
+            logger.error(f"Erro no modo Chat: {e}")
             return jsonify({'error': str(e)}), 500
 
-# ===== Forense de E-mails e Comunicação =====
+# ===== Função para Streaming de Respostas (caso necessário) =====
+def streaming_response(text: str, chunk_size: int = 200):
+    for i in range(0, len(text), chunk_size):
+        yield text[i:i+chunk_size]
+        time.sleep(0.1)
+
+# ===== Análise Forense e Processamento de Texto =====
+def advanced_forensic_analysis(text: str) -> dict:
+    forensic_info = {}
+    try:
+        for key, pattern in COMPILED_REGEX_PATTERNS.items():
+            matches = pattern.findall(text)
+            if matches:
+                label = {
+                    'ip': 'Endereços IPv4',
+                    'ipv6': 'Endereços IPv6',
+                    'email': 'E-mails',
+                    'phone': 'Telefones',
+                    'url': 'URLs',
+                    'mac': 'Endereços MAC',
+                    'md5': 'Hashes MD5',
+                    'sha1': 'Hashes SHA1',
+                    'sha256': 'Hashes SHA256',
+                    'cve': 'IDs CVE',
+                    'imei': 'IMEI',
+                    'cpf': 'CPF',
+                    'cnpj': 'CNPJ',
+                    'ssn': 'SSN',
+                    'uuid': 'UUID',
+                    'cc': 'Cartões de Crédito',
+                    'btc': 'Endereço Bitcoin',
+                }.get(key, key)
+                forensic_info[label] = list(set(matches))
+    except Exception as e:
+        logger.error(f"❌ Erro durante a análise forense: {e}")
+    return forensic_info
+
+def convert_to_degrees(value) -> float:
+    try:
+        d, m, s = value
+        degrees = d[0] / d[1]
+        minutes = m[0] / m[1] / 60
+        seconds = s[0] / s[1] / 3600
+        return degrees + minutes + seconds
+    except Exception as e:
+        logger.error(f"❌ Erro na conversão de coordenadas: {e}")
+        raise e
+
+def analyze_image_metadata(url: str) -> dict:
+    try:
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        image_data = response.content
+        image = Image.open(io.BytesIO(image_data))
+        exif = image._getexif()
+        meta = {}
+        if exif:
+            for tag_id, value in exif.items():
+                tag = Image.ExifTags.TAGS.get(tag_id, tag_id)
+                meta[tag] = value
+            if "GPSInfo" in meta:
+                gps_info = meta["GPSInfo"]
+                try:
+                    lat = convert_to_degrees(gps_info.get(2))
+                    if gps_info.get(1) != "N":
+                        lat = -lat
+                    lon = convert_to_degrees(gps_info.get(4))
+                    if gps_info.get(3) != "E":
+                        lon = -lon
+                    meta["GPS Coordinates"] = f"{lat}, {lon} (Google Maps: https://maps.google.com/?q={lat},{lon})"
+                except Exception as e:
+                    meta["GPS Extraction Error"] = str(e)
+        else:
+            meta["info"] = "Nenhum metadado EXIF encontrado."
+        return meta
+    except Exception as e:
+        logger.error(f"❌ Erro ao analisar metadados da imagem: {e}")
+        return {"error": str(e)}
+
+# ===== Funcionalidades de Investigação Online =====
+def perform_search(query: str, search_type: str, max_results: int) -> list:
+    try:
+        with DDGS() as ddgs:
+            if search_type == 'web':
+                return list(ddgs.text(keywords=query, max_results=max_results))
+            elif search_type == 'news':
+                return list(ddgs.news(keywords=query, max_results=max_results))
+            elif search_type == 'leaked':
+                return list(ddgs.text(keywords=f"{query} leaked", max_results=max_results))
+            else:
+                return []
+    except Exception as e:
+        logger.error(f"Erro na busca ({search_type}): {e}")
+        return []
+
+def format_search_results(results: list, section_title: str) -> tuple:
+    count = len(results)
+    info_message = f"Apenas {count} resultados encontrados para '{section_title}'.<br>" if count < 1 else ""
+    formatted_text = "<br>".join(
+        f"• {res.get('title', 'Sem título')}<br>&nbsp;&nbsp;{res.get('href', 'Sem link')}<br>&nbsp;&nbsp;{res.get('body', '')}"
+        for res in results
+    )
+    links_table = (
+        f"<h3>{section_title}</h3>"
+        "<table border='1' style='width:100%; border-collapse: collapse; text-align: left;'>"
+        "<thead><tr><th>Título</th><th>Link</th></tr></thead><tbody>"
+    )
+    for res in results:
+        title = res.get('title', 'Sem título')
+        href = res.get('href', 'Sem link')
+        links_table += f"<tr><td>{title}</td><td><a href='{href}' target='_blank'>{href}</a></td></tr>"
+    links_table += "</tbody></table>"
+    return formatted_text, links_table, info_message
+
+def process_investigation(target: str, sites_meta: int = 5, investigation_focus: str = "",
+                          search_news: bool = False, search_leaked_data: bool = False) -> str:
+    logger.info(f"🔍 Iniciando investigação para: {repr(target)}")
+    if not target.strip():
+        return "Erro: Por favor, insira um alvo para investigação."
+    
+    search_tasks = {}
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        search_tasks['web'] = executor.submit(perform_search, target, 'web', sites_meta)
+        if search_news:
+            search_tasks['news'] = executor.submit(perform_search, target, 'news', sites_meta)
+        if search_leaked_data:
+            search_tasks['leaked'] = executor.submit(perform_search, target, 'leaked', sites_meta)
+    
+    results_web = search_tasks['web'].result() if 'web' in search_tasks else []
+    results_news = search_tasks['news'].result() if 'news' in search_tasks else []
+    results_leaked = search_tasks['leaked'].result() if 'leaked' in search_tasks else []
+    
+    formatted_web, links_web, info_web = format_search_results(results_web, "Sites")
+    formatted_news, links_news, info_news = ("", "", "") if not results_news else format_search_results(results_news, "Notícias")
+    formatted_leaked, links_leaked, info_leaked = ("", "", "") if not results_leaked else format_search_results(results_leaked, "Dados Vazados")
+    
+    combined_results_text = ""
+    if formatted_web:
+        combined_results_text += "<br><br>Resultados de Sites:<br>" + formatted_web
+    if formatted_news:
+        combined_results_text += "<br><br>Notícias:<br>" + formatted_news
+    if formatted_leaked:
+        combined_results_text += "<br><br>Dados Vazados:<br>" + formatted_leaked
+    
+    forensic_analysis = advanced_forensic_analysis(combined_results_text)
+    forensic_details = "<br>".join(f"{k}: {v}" for k, v in forensic_analysis.items() if v)
+    
+    investigation_prompt = f"Analise os dados obtidos sobre '{target}'"
+    if investigation_focus:
+        investigation_prompt += f", focando em '{investigation_focus}'"
+    investigation_prompt += "<br>" + combined_results_text
+    if forensic_details:
+        investigation_prompt += "<br><br>Análise Forense Extraída:<br>" + forensic_details
+    investigation_prompt += "<br><br>Elabore um relatório detalhado com ligações, riscos e informações relevantes."
+    
+    try:
+        investigation_response = model.create_chat_completion(
+            messages=[
+                {"role": "system", "content": "Você é um perito policial e forense digital, experiente em métodos policiais de investigação. Utilize técnicas de análise de evidências, protocolos forenses e investigação digital para identificar padrões, rastrear conexões e coletar evidências relevantes. Seja minucioso, preciso e detalhado."},
+                {"role": "user", "content": investigation_prompt}
+            ],
+            temperature=0.7,
+            max_tokens=1000,
+            stop=["</s>"]
+        )
+        report = investigation_response['choices'][0]['message']['content']
+        links_combined = links_web + (links_news if links_news else "") + (links_leaked if links_leaked else "")
+        final_report = report + "<br><br>Links encontrados:<br>" + links_combined
+        return final_report
+    except Exception as e:
+        logger.error(f"❌ Erro na investigação: {e}")
+        return f"Erro na investigação: {e}"
+
+# ===== Função para Análise de E-mails =====
 def analyze_email_forensics(raw_email: bytes) -> dict:
-    """
-    Analisa o e-mail bruto e extrai cabeçalhos, remetente, destinatários, assunto,
-    data e informações de anexos.
-    """
     result = {}
     try:
         msg = BytesParser(policy=policy.default).parsebytes(raw_email)
@@ -1088,7 +965,6 @@ def analyze_email_forensics(raw_email: bytes) -> dict:
         result['To'] = msg.get('To')
         result['Subject'] = msg.get('Subject')
         result['Date'] = msg.get('Date')
-        
         attachments = []
         for part in msg.walk():
             content_disposition = part.get("Content-Disposition", "")
@@ -1105,10 +981,6 @@ def analyze_email_forensics(raw_email: bytes) -> dict:
 
 @app.route('/email_forensics', methods=['POST'])
 def email_forensics():
-    """
-    Endpoint para análise forense de e-mails.
-    Espera o upload de um arquivo de e-mail (raw) e retorna os dados forenses extraídos.
-    """
     if 'email_file' not in request.files:
         return jsonify({'error': 'Arquivo de e-mail não fornecido'}), 400
     email_file = request.files['email_file']
@@ -1116,26 +988,18 @@ def email_forensics():
     analysis = analyze_email_forensics(raw_email)
     return jsonify(analysis)
 
-# ===== Análise de Comportamento de Usuário (UBA) =====
+# ===== Função para Análise de Comportamento de Usuário (UBA) =====
 def analyze_user_behavior(user_data: list) -> dict:
-    """
-    Recebe uma lista de registros de comportamento do usuário e aplica detecção de anomalias
-    utilizando IsolationForest.
-    Cada registro deve ser um dicionário com métricas numéricas.
-    """
     result = {}
     try:
         if not user_data:
             return {"error": "Nenhum dado de usuário fornecido"}
-        
         keys = list(user_data[0].keys())
         X = np.array([[record[k] for k in keys] for record in user_data])
-        
         model_uba = IsolationForest(contamination=0.1, random_state=42)
         model_uba.fit(X)
         scores = model_uba.decision_function(X)
         anomalies = model_uba.predict(X)
-        
         analysis = []
         for i, record in enumerate(user_data):
             record_analysis = record.copy()
@@ -1149,10 +1013,6 @@ def analyze_user_behavior(user_data: list) -> dict:
 
 @app.route('/user_behavior', methods=['POST'])
 def user_behavior():
-    """
-    Endpoint para análise de comportamento de usuários (UBA).
-    Recebe um JSON com registros de atividades do usuário e retorna a análise de anomalias.
-    """
     try:
         user_data = request.get_json()
         if not user_data:
@@ -1162,18 +1022,14 @@ def user_behavior():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-# ===== Análise de Logs e Integração com SIEM =====
+# ===== Função para Análise de Logs e Integração com SIEM =====
 def analyze_logs_for_siem(logs: str) -> dict:
-    """
-    Processa logs em formato texto e extrai informações relevantes, como contagem de erros e avisos.
-    """
     result = {}
     try:
         error_pattern = re.compile(r'ERROR|error')
         warning_pattern = re.compile(r'WARNING|warning')
         errors = error_pattern.findall(logs)
         warnings = warning_pattern.findall(logs)
-        
         result['error_count'] = len(errors)
         result['warning_count'] = len(warnings)
         result['total_lines'] = len(logs.splitlines())
@@ -1184,21 +1040,82 @@ def analyze_logs_for_siem(logs: str) -> dict:
 
 @app.route('/log_analysis', methods=['POST'])
 def log_analysis():
-    """
-    Endpoint para análise de logs e integração com SIEM.
-    Recebe logs em formato texto via formulário e retorna um relatório com a contagem de erros e avisos.
-    """
     logs = request.form.get('logs', '')
     if not logs:
         return jsonify({'error': 'Nenhum log fornecido'}), 400
     analysis = analyze_logs_for_siem(logs)
     return jsonify(analysis)
 
+# ===== Atualização na Análise de Tráfego de Rede (PCAP) com Regex =====
+PCAP_UPLOAD_FOLDER = "/tmp"
+NETWORK_REGEX_PATTERNS = {
+    "IP_SUSPEITO": re.compile(r"\b(192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3})\b"),
+    "DOMINIO_SUSPEITO": re.compile(r"\b[a-z0-9.-]+\.(ru|cn|tk|xyz|info)\b"),
+    "USER_AGENT_SUSPEITO": re.compile(r"curl|python-requests|wget", re.IGNORECASE)
+}
+
+def process_pcap(pcap_path):
+    try:
+        # Usando only_summaries para otimizar o processamento
+        cap = pyshark.FileCapture(pcap_path, only_summaries=True)
+        protocol_count = {}
+        ip_count = {}
+        port_count = {}
+        alerts = []
+        total_packets = 0
+
+        for packet in cap:
+            total_packets += 1
+
+            if hasattr(packet, 'protocol'):
+                protocol = packet.protocol
+                protocol_count[protocol] = protocol_count.get(protocol, 0) + 1
+
+            if hasattr(packet, 'source'):
+                ip = packet.source
+                ip_count[ip] = ip_count.get(ip, 0) + 1
+                if NETWORK_REGEX_PATTERNS["IP_SUSPEITO"].search(ip):
+                    alerts.append(f"⚠️ IP suspeito detectado: {ip}")
+
+            if hasattr(packet, 'destination'):
+                ip = packet.destination
+                ip_count[ip] = ip_count.get(ip, 0) + 1
+
+            if hasattr(packet, 'info') and packet.info:
+                ports = re.findall(r":(\d+)", packet.info)
+                for port in ports:
+                    port_count[port] = port_count.get(port, 0) + 1
+
+            if hasattr(packet, 'info') and packet.info:
+                if NETWORK_REGEX_PATTERNS["USER_AGENT_SUSPEITO"].search(packet.info):
+                    alerts.append(f"⚠️ User-Agent suspeito detectado: {packet.info}")
+
+        cap.close()
+        result = {
+            "total_packets": total_packets,
+            "protocol_count": dict(sorted(protocol_count.items(), key=lambda item: item[1], reverse=True)),
+            "top_ip_addresses": dict(sorted(ip_count.items(), key=lambda item: item[1], reverse=True)[:5]),
+            "top_ports": dict(sorted(port_count.items(), key=lambda item: item[1], reverse=True)[:5]),
+            "alerts": alerts
+        }
+        return result
+
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.route('/network_analysis', methods=['POST'])
+def network_analysis():
+    if 'pcap_file' not in request.files:
+        return jsonify({"error": "Arquivo PCAP não fornecido"}), 400
+    file = request.files['pcap_file']
+    pcap_path = os.path.join(PCAP_UPLOAD_FOLDER, file.filename)
+    file.save(pcap_path)
+    with multiprocessing.Pool(processes=1) as pool:
+        result = pool.apply(process_pcap, (pcap_path,))
+    return jsonify(result)
+
 # ===== Funções para LocalTunnel (opcional) =====
 def ensure_localtunnel_installed():
-    """
-    Verifica se o LocalTunnel está instalado; caso não esteja, tenta instalá-lo via npm.
-    """
     try:
         result = subprocess.run("which lt", shell=True, capture_output=True, text=True)
         if not result.stdout.strip():
@@ -1217,9 +1134,6 @@ def ensure_localtunnel_installed():
         print("Erro ao verificar ou instalar LocalTunnel:", e)
 
 def get_tunnel_password():
-    """
-    Obtém e exibe o tunnel password (IP público) utilizando o comando curl.
-    """
     try:
         time.sleep(3)
         result = subprocess.run("curl https://loca.lt/mytunnelpassword", shell=True, capture_output=True, text=True)
