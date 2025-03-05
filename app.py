@@ -36,7 +36,7 @@ from PIL import Image, ExifTags
 from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
 import tempfile
 import multiprocessing
-import socket  # Adicionado para descoberta de IP
+import socket  # Necessário para descoberta de IP
 
 # Tenta importar pyshark para análise de tráfego de rede
 try:
@@ -614,6 +614,7 @@ def metrics():
 
 # ===== Pré-compilação dos padrões de regex para análise forense =====
 COMPILED_REGEX_PATTERNS = {
+    # Padrões originais
     'ip': re.compile(r'\b(?:\d{1,3}\.){3}\d{1,3}\b'),
     'ipv6': re.compile(r'\b(?:[A-Fa-f0-9]{1,4}:){7}[A-Fa-f0-9]{1,4}\b'),
     'email': re.compile(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'),
@@ -631,6 +632,22 @@ COMPILED_REGEX_PATTERNS = {
     'uuid': re.compile(r'\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b'),
     'cc': re.compile(r'\b(?:\d[ -]*?){13,16}\b'),
     'btc': re.compile(r'\b(?:[13][a-km-zA-HJ-NP-Z1-9]{25,34})\b'),
+    # Novos padrões para investigação e IA
+    'ethereum': re.compile(r'\b0x[a-fA-F0-9]{40}\b'),
+    'jwt': re.compile(r'\beyJ[a-zA-Z0-9-_]+?\.[a-zA-Z0-9-_]+?\.[a-zA-Z0-9-_]+?\b'),
+    'cidr': re.compile(r'\b(?:\d{1,3}\.){3}\d{1,3}/\d{1,2}\b'),
+    'iso8601': re.compile(r'\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}'),
+    'sha512': re.compile(r'\b[a-fA-F0-9]{128}\b'),
+    'base64': re.compile(r'\b(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?\b'),
+    'google_api_key': re.compile(r'\bAIza[0-9A-Za-z-_]{35}\b'),
+    'iban': re.compile(r'\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b'),
+    'us_phone': re.compile(r'\(?\b\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b'),
+    'twitter_handle': re.compile(r'@\w{1,15}\b'),
+    'date_mmddyyyy': re.compile(r'\b(0?[1-9]|1[0-2])/(0?[1-9]|[12]\d|3[01])/\d{4}\b'),
+    'win_path': re.compile(r'\b[a-zA-Z]:\\(?:[^\\\/:*?"<>|\r\n]+\\)*[^\\\/:*?"<>|\r\n]+\b'),
+    'ipv4_port': re.compile(r'\b(?:\d{1,3}\.){3}\d{1,3}:\d+\b'),
+    'http_status': re.compile(r'HTTP/\d\.\d"\s(\d{3})\b'),
+    'version': re.compile(r'\b\d+\.\d+(\.\d+)?\b')
 }
 
 # ===== Funções de Download e Carregamento do Modelo =====
@@ -749,7 +766,7 @@ def discover_ip(target: str) -> dict:
     """
     Tenta descobrir o(s) IP(s) do alvo informado.
     Se o alvo já for um IP válido (IPv4 ou IPv6), retorna-o diretamente.
-    Caso contrário, realiza resolução DNS para obter o hostname, aliases e IPs.
+    Caso contrário, realiza resolução DNS para obter hostname, aliases e IPs.
     """
     try:
         # Verifica se o target já é um IP válido
@@ -848,6 +865,21 @@ def advanced_forensic_analysis(text: str) -> dict:
                     'uuid': 'UUID',
                     'cc': 'Cartões de Crédito',
                     'btc': 'Endereço Bitcoin',
+                    'ethereum': 'Ethereum Address',
+                    'jwt': 'Token JWT',
+                    'cidr': 'CIDR Notation',
+                    'iso8601': 'Timestamp ISO8601',
+                    'sha512': 'Hashes SHA-512',
+                    'base64': 'String Base64',
+                    'google_api_key': 'Chave API Google',
+                    'iban': 'Número IBAN',
+                    'us_phone': 'Telefone (EUA)',
+                    'twitter_handle': 'Twitter Handle',
+                    'date_mmddyyyy': 'Data (MM/DD/YYYY)',
+                    'win_path': 'Caminho Windows',
+                    'ipv4_port': 'IPv4 com Porta',
+                    'http_status': 'Código HTTP',
+                    'version': 'Número de Versão'
                 }.get(key, key)
                 forensic_info[label] = list(set(matches))
     except Exception as e:
