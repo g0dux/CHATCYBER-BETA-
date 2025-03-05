@@ -36,6 +36,7 @@ from PIL import Image, ExifTags
 from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
 import tempfile
 import multiprocessing
+import socket  # Adicionado para descoberta de IP
 
 # Tenta importar pyshark para análise de tráfego de rede
 try:
@@ -68,7 +69,7 @@ DEFAULT_LOCAL_MODEL_DIR = "models"
 app = Flask(__name__)
 
 # ===== Endpoint da Página Principal =====
-index_html = """
+index_html = """ 
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -576,7 +577,6 @@ index_html = """
 </body>
 </html>
 """
-
 @app.route('/')
 def index():
     return render_template_string(index_html)
@@ -743,6 +743,40 @@ def correct_language(text: str, lang_config: dict) -> str:
     except Exception as e:
         logger.error(f"❌ Erro na correção de idioma: {e}")
         return text
+
+# ===== Novo Modo: Descoberta de IP =====
+def discover_ip(target: str) -> dict:
+    """
+    Tenta descobrir o(s) IP(s) do alvo informado.
+    Se o alvo já for um IP válido (IPv4 ou IPv6), retorna-o diretamente.
+    Caso contrário, realiza resolução DNS para obter o hostname, aliases e IPs.
+    """
+    try:
+        # Verifica se o target já é um IP válido
+        ipv4_pattern = re.compile(r'^(?:\d{1,3}\.){3}\d{1,3}$')
+        ipv6_pattern = re.compile(r'^[A-Fa-f0-9:]+$')
+        if ipv4_pattern.match(target) or ipv6_pattern.match(target):
+            return {'target': target, 'ip': target, 'method': 'Já é um IP válido'}
+        # Caso contrário, realiza resolução DNS
+        hostname, aliases, ip_addresses = socket.gethostbyname_ex(target)
+        return {
+            'target': target,
+            'hostname': hostname,
+            'aliases': aliases,
+            'ip_addresses': ip_addresses,
+            'method': 'Resolução DNS'
+        }
+    except Exception as e:
+        logger.error(f"Erro na descoberta de IP para {target}: {e}")
+        return {'error': str(e)}
+
+@app.route('/ip_discovery', methods=['POST'])
+def ip_discovery():
+    target = request.form.get('target', '').strip()
+    if not target:
+        return jsonify({'error': 'Erro: Por favor, insira um alvo para descoberta de IP.'}), 400
+    result = discover_ip(target)
+    return jsonify(result)
 
 # ===== Endpoint /ask para chat com a IA =====
 @app.route('/ask', methods=['POST'])
