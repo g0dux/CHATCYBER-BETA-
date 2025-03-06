@@ -75,67 +75,83 @@ index_html = """
 <head>
   <meta charset="UTF-8">
   <title>Cyber Assistant v4.0</title>
+  <!-- Importação da fonte Inter do Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
   <style>
     /* Reset e estilo base */
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
-      background-color: #1e1e1e;
-      color: #d1d5db;
+      background: radial-gradient(circle, #0f0f0f, #1c1c1c);
+      color: #e0e0e0;
       font-family: 'Inter', sans-serif;
       display: flex;
-      flex-direction: column;
       min-height: 100vh;
+      transition: background 0.5s, color 0.5s;
     }
     header {
-      background-color: #111827;
+      background: linear-gradient(90deg, #141414, #202020);
       color: #fff;
-      padding: 20px;
+      padding: 25px;
       text-align: center;
-      font-size: 24px;
+      font-size: 28px;
       font-weight: 600;
-      border-bottom: 1px solid #374151;
+      border-bottom: 2px solid #333;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.5);
+      transition: background 0.3s;
     }
     .nav-tabs {
       display: flex;
-      background-color: #1e293b;
-      border-bottom: 1px solid #374151;
+      background-color: #151515;
+      border-bottom: 2px solid #333;
     }
     .nav-tabs button {
       flex: 1;
-      padding: 15px 20px;
+      padding: 18px 20px;
       background: none;
       border: none;
-      color: #9ca3af;
-      font-size: 16px;
+      color: #a0a0a0;
+      font-size: 17px;
       cursor: pointer;
-      transition: background-color 0.2s;
+      transition: background 0.3s, color 0.3s;
     }
     .nav-tabs button:hover {
-      background-color: #27303f;
+      background-color: #1d1d1d;
     }
     .nav-tabs button.active {
-      background-color: #374151;
-      color: #fff;
-      border-bottom: 2px solid #3b82f6;
+      background-color: #252525;
+      color: #00ffe0;
+      border-bottom: 3px solid #00ffe0;
     }
-    .container {
+    .main-container {
+      display: flex;
       flex: 1;
-      max-width: 800px;
-      margin: 20px auto;
-      padding: 10px;
+      max-width: 1200px;
+      margin: 30px auto;
+      padding: 20px;
+      gap: 20px;
+    }
+    .chat-container {
+      flex: 3;
+      display: flex;
+      flex-direction: column;
     }
     .chat-window {
-      background-color: #1f2937;
-      border-radius: 8px;
-      padding: 20px;
+      background-color: #1a1a1a;
+      border-radius: 10px;
+      padding: 25px;
       height: 500px;
       overflow-y: auto;
-      margin-bottom: 10px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+      margin-bottom: 20px;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.7);
+      position: relative;
+      transition: background 0.3s, box-shadow 0.3s;
     }
     .message {
-      margin-bottom: 15px;
+      margin-bottom: 20px;
       display: flex;
+      animation: slideIn 0.5s ease-out;
     }
     .message.user {
       justify-content: flex-end;
@@ -144,112 +160,173 @@ index_html = """
       justify-content: flex-start;
     }
     .bubble {
-      padding: 10px 15px;
-      border-radius: 12px;
-      max-width: 70%;
+      padding: 12px 18px;
+      border-radius: 15px;
+      max-width: 75%;
       word-wrap: break-word;
-      font-size: 16px;
-      line-height: 1.5;
+      font-size: 17px;
+      line-height: 1.6;
+      transition: background 0.3s, transform 0.2s;
     }
     .message.user .bubble {
-      background-color: #3b82f6;
-      color: #fff;
-      border-radius: 12px 12px 0 12px;
+      background: linear-gradient(90deg, #00ffe0, #00aaff);
+      color: #0a0a0a;
+      border-radius: 15px 15px 0 15px;
+      transform: translateX(10px);
     }
     .message.ai .bubble {
-      background-color: #374151;
-      color: #d1d5db;
-      border-radius: 12px 12px 12px 0;
+      background-color: #2a2a2a;
+      color: #e0e0e0;
+      border-radius: 15px 15px 15px 0;
+      transform: translateX(-10px);
     }
     .input-area {
       display: flex;
-      gap: 10px;
+      gap: 12px;
+      align-items: center;
     }
     .input-area input[type="text"] {
       flex: 1;
-      padding: 12px;
-      border: 1px solid #374151;
-      border-radius: 5px;
-      background-color: #1f2937;
-      color: #d1d5db;
+      padding: 14px;
+      border: 1px solid #333;
+      border-radius: 6px;
+      background-color: #141414;
+      color: #e0e0e0;
       font-size: 16px;
+      transition: border-color 0.3s, box-shadow 0.3s;
+    }
+    .input-area input[type="text"]:focus {
+      border-color: #00ffe0;
+      outline: none;
+      box-shadow: 0 0 8px rgba(0,255,224,0.5);
     }
     .input-area button {
-      padding: 12px 20px;
+      padding: 14px 24px;
       border: none;
-      background-color: #3b82f6;
+      background-color: #00aaff;
       color: #fff;
-      border-radius: 5px;
+      border-radius: 6px;
       cursor: pointer;
       font-size: 16px;
-      transition: background-color 0.2s;
+      transition: background 0.3s, transform 0.2s;
     }
     .input-area button:hover {
-      background-color: #2563eb;
+      background-color: #0088cc;
+      transform: scale(1.05);
     }
     .form-options {
-      margin-top: 10px;
+      margin-top: 12px;
       display: flex;
       flex-wrap: wrap;
-      gap: 10px;
+      gap: 12px;
       align-items: center;
       font-size: 14px;
-      color: #9ca3af;
+      color: #b0b0b0;
     }
     .form-options label {
-      margin-right: 10px;
+      margin-right: 8px;
     }
-    /* Opções de investigação (ocultas por padrão) */
     #investigationOptions { display: none; }
+    /* Sidebar para anotações */
+    .sidebar {
+      flex: 1;
+      background-color: #1a1a1a;
+      border-radius: 10px;
+      padding: 20px;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.7);
+      height: 550px;
+      overflow-y: auto;
+      position: relative;
+      transition: background 0.3s, box-shadow 0.3s;
+    }
+    .sidebar h3 {
+      margin-bottom: 12px;
+      font-size: 20px;
+      color: #00ffe0;
+      text-align: center;
+    }
+    .sidebar textarea {
+      width: 100%;
+      height: calc(100% - 50px);
+      background-color: #141414;
+      border: 1px solid #333;
+      border-radius: 6px;
+      color: #e0e0e0;
+      padding: 10px;
+      font-size: 15px;
+      resize: none;
+      transition: border-color 0.3s;
+    }
+    .sidebar textarea:focus {
+      border-color: #00ffe0;
+      outline: none;
+    }
     /* Spinner de carregamento */
     #loadingSpinner {
       display: none;
-      margin: 10px auto;
-      border: 6px solid #f3f3f3;
-      border-top: 6px solid #3b82f6;
+      margin: 15px auto;
+      border: 6px solid #333;
+      border-top: 6px solid #00ffe0;
       border-radius: 50%;
-      width: 30px;
-      height: 30px;
+      width: 36px;
+      height: 36px;
       animation: spin 1s linear infinite;
     }
     @keyframes spin {
       0% { transform: rotate(0deg); }
       100% { transform: rotate(360deg); }
     }
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateY(15px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
     footer {
       background-color: #111827;
-      color: #9ca3af;
+      color: #a0a0a0;
       text-align: center;
-      padding: 10px;
+      padding: 15px;
       font-size: 12px;
-      border-top: 1px solid #374151;
+      border-top: 1px solid #333;
+      transition: background 0.3s;
     }
-    /* Estilos para o modal de configurações */
+    /* Modal de configurações */
     #configModal {
       display: none;
       position: fixed;
-      top: 0;
-      left: 0;
+      top: 0; left: 0;
       width: 100%;
       height: 100%;
-      background: rgba(0,0,0,0.6);
+      background: rgba(0, 0, 0, 0.85);
       justify-content: center;
       align-items: center;
       z-index: 1000;
+      animation: fadeInModal 0.5s ease;
+    }
+    @keyframes fadeInModal {
+      from { opacity: 0; }
+      to { opacity: 1; }
     }
     #configModal .modal-content {
-      background: #1e1e1e;
-      padding: 20px;
+      background: #121212;
+      padding: 25px;
       border-radius: 8px;
       max-width: 500px;
       width: 90%;
-      color: #d1d5db;
+      color: #e0e0e0;
+      box-shadow: 0 6px 18px rgba(0,0,0,0.7);
+      animation: slideDown 0.5s ease-out;
+    }
+    @keyframes slideDown {
+      from { transform: translateY(-20px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
     }
     #configModal .modal-content h2 {
-      margin-bottom: 15px;
+      margin-bottom: 18px;
+      text-align: center;
+      font-size: 22px;
     }
     #configModal .modal-content form > div {
-      margin-bottom: 10px;
+      margin-bottom: 12px;
     }
     #configModal label {
       display: block;
@@ -258,51 +335,61 @@ index_html = """
     #configModal input[type="number"],
     #configModal input[type="color"] {
       width: 100%;
-      padding: 6px;
-      border: 1px solid #374151;
+      padding: 8px;
+      border: 1px solid #333;
       border-radius: 4px;
-      background-color: #1f2937;
-      color: #d1d5db;
+      background-color: #1a1a1a;
+      color: #e0e0e0;
     }
     #configModal button {
-      padding: 8px 12px;
+      padding: 10px 16px;
       border: none;
-      background-color: #3b82f6;
+      background-color: #00aaff;
       color: #fff;
       border-radius: 4px;
       cursor: pointer;
       margin-right: 10px;
+      transition: background 0.3s, transform 0.2s;
     }
-    /* Estilo para o botão de configurações flutuante */
+    #configModal button:hover {
+      background-color: #0088cc;
+      transform: scale(1.05);
+    }
+    /* Botão de configurações flutuante */
     #configToggleButton {
       position: fixed;
       bottom: 20px;
       right: 20px;
-      background-color: #3b82f6;
+      background-color: #00aaff;
       color: #fff;
       border: none;
       border-radius: 50%;
-      width: 50px;
-      height: 50px;
+      width: 55px;
+      height: 55px;
       cursor: pointer;
-      font-size: 24px;
+      font-size: 26px;
       z-index: 1001;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.6);
+      transition: transform 0.3s;
+    }
+    #configToggleButton:hover {
+      transform: rotate(45deg) scale(1.1);
     }
     /* Botão de limpar chat */
     #clearChat {
-      margin-top: 10px;
-      padding: 10px 20px;
+      margin-top: 12px;
+      padding: 12px 22px;
       background-color: #ef4444;
       color: #fff;
       border: none;
-      border-radius: 5px;
+      border-radius: 6px;
       cursor: pointer;
-      font-size: 14px;
-      transition: background-color 0.2s;
+      font-size: 15px;
+      transition: background 0.3s, transform 0.2s;
     }
     #clearChat:hover {
       background-color: #dc2626;
+      transform: scale(1.05);
     }
   </style>
   <!-- Estilo personalizado atualizado via configurações -->
@@ -313,56 +400,63 @@ index_html = """
   <div class="nav-tabs">
     <button class="tab-button active" data-tab="chatTab">Chat</button>
   </div>
-  <div class="container">
-    <div id="chatTab" class="tab-content">
-      <div class="chat-window" id="chatWindow"></div>
-      <!-- Spinner de carregamento -->
-      <div id="loadingSpinner"></div>
-      <form id="chatForm">
-        <div class="input-area">
-          <input type="text" id="chatInput" name="user_input" placeholder="Digite sua mensagem ou URL...">
-          <button type="submit">Enviar</button>
-        </div>
-        <div class="form-options">
-          <label for="mode">Modo:</label>
-          <select id="mode" name="mode">
-            <option value="Chat">Chat</option>
-            <option value="Investigação">Investigação</option>
-            <option value="Metadados">Metadados</option>
-          </select>
-          <label for="language">Idioma:</label>
-          <select id="language" name="language">
-            <option value="Português">Português</option>
-            <option value="English">English</option>
-            <option value="Español">Español</option>
-            <option value="Français">Français</option>
-            <option value="Deutsch">Deutsch</option>
-          </select>
-          <label for="style">Estilo:</label>
-          <select id="style" name="style">
-            <option value="Técnico">Técnico</option>
-            <option value="Livre">Livre</option>
-          </select>
-          <label>
-            <input type="checkbox" id="streaming" name="streaming"> Ativar Streaming
-          </label>
-        </div>
-        <!-- Opções adicionais para investigação -->
-        <div class="form-options" id="investigationOptions">
-          <label for="sites_meta">Meta de sites:</label>
-          <input type="number" id="sites_meta" name="sites_meta" value="5" style="width: 60px;">
-          <label for="investigation_focus">Foco (opcional):</label>
-          <input type="text" id="investigation_focus" name="investigation_focus" placeholder="Ex: phishing, malware...">
-          <label>
-            <input type="checkbox" id="search_news" name="search_news"> Ativar Notícias
-          </label>
-          <label>
-            <input type="checkbox" id="search_leaked_data" name="search_leaked_data"> Ativar Dados Vazados
-          </label>
-        </div>
-      </form>
-      <!-- Botão para limpar o chat -->
-      <button id="clearChat">Limpar Chat</button>
+  <div class="main-container">
+    <div class="chat-container">
+      <div id="chatTab" class="tab-content">
+        <div class="chat-window" id="chatWindow"></div>
+        <!-- Spinner de carregamento -->
+        <div id="loadingSpinner"></div>
+        <form id="chatForm">
+          <div class="input-area">
+            <input type="text" id="chatInput" name="user_input" placeholder="Digite sua mensagem ou URL...">
+            <button type="submit">Enviar</button>
+          </div>
+          <div class="form-options">
+            <label for="mode">Modo:</label>
+            <select id="mode" name="mode">
+              <option value="Chat">Chat</option>
+              <option value="Investigação">Investigação</option>
+              <option value="Metadados">Metadados</option>
+            </select>
+            <label for="language">Idioma:</label>
+            <select id="language" name="language">
+              <option value="Português">Português</option>
+              <option value="English">English</option>
+              <option value="Español">Español</option>
+              <option value="Français">Français</option>
+              <option value="Deutsch">Deutsch</option>
+            </select>
+            <label for="style">Estilo:</label>
+            <select id="style" name="style">
+              <option value="Técnico">Técnico</option>
+              <option value="Livre">Livre</option>
+            </select>
+            <label>
+              <input type="checkbox" id="streaming" name="streaming"> Ativar Streaming
+            </label>
+          </div>
+          <!-- Opções adicionais para investigação -->
+          <div class="form-options" id="investigationOptions">
+            <label for="sites_meta">Meta de sites:</label>
+            <input type="number" id="sites_meta" name="sites_meta" value="5" style="width: 60px;">
+            <label for="investigation_focus">Foco (opcional):</label>
+            <input type="text" id="investigation_focus" name="investigation_focus" placeholder="Ex: phishing, malware...">
+            <label>
+              <input type="checkbox" id="search_news" name="search_news"> Ativar Notícias
+            </label>
+            <label>
+              <input type="checkbox" id="search_leaked_data" name="search_leaked_data"> Ativar Dados Vazados
+            </label>
+          </div>
+        </form>
+        <!-- Botão para limpar o chat -->
+        <button id="clearChat">Limpar Chat</button>
+      </div>
+    </div>
+    <!-- Sidebar para anotações -->
+    <div class="sidebar">
+      <h3>Anotações</h3>
+      <textarea id="notesArea" placeholder="Anote informações importantes aqui..."></textarea>
     </div>
   </div>
   <footer>© 2025 Cyber Assistant</footer>
@@ -612,7 +706,7 @@ def metrics():
     data = generate_latest()
     return Response(data, mimetype=CONTENT_TYPE_LATEST)
 
-# ===== Pré-compilação dos padrões de regex para análise forense =====
+# ===== COMPILED_REGEX_PATTERNS =====
 COMPILED_REGEX_PATTERNS = {
     # Padrões originais
     'ip': re.compile(r'\b(?:\d{1,3}\.){3}\d{1,3}\b'),
@@ -632,7 +726,7 @@ COMPILED_REGEX_PATTERNS = {
     'uuid': re.compile(r'\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b'),
     'cc': re.compile(r'\b(?:\d[ -]*?){13,16}\b'),
     'btc': re.compile(r'\b(?:[13][a-km-zA-HJ-NP-Z1-9]{25,34})\b'),
-    # Novos padrões para investigação e IA
+    # Padrões para investigação e IA
     'ethereum': re.compile(r'\b0x[a-fA-F0-9]{40}\b'),
     'jwt': re.compile(r'\beyJ[a-zA-Z0-9-_]+?\.[a-zA-Z0-9-_]+?\.[a-zA-Z0-9-_]+?\b'),
     'cidr': re.compile(r'\b(?:\d{1,3}\.){3}\d{1,3}/\d{1,2}\b'),
@@ -647,7 +741,22 @@ COMPILED_REGEX_PATTERNS = {
     'win_path': re.compile(r'\b[a-zA-Z]:\\(?:[^\\\/:*?"<>|\r\n]+\\)*[^\\\/:*?"<>|\r\n]+\b'),
     'ipv4_port': re.compile(r'\b(?:\d{1,3}\.){3}\d{1,3}:\d+\b'),
     'http_status': re.compile(r'HTTP/\d\.\d"\s(\d{3})\b'),
-    'version': re.compile(r'\b\d+\.\d+(\.\d+)?\b')
+    'version': re.compile(r'\b\d+\.\d+(\.\d+)?\b'),
+    # Padrões adicionais
+    'bitcoin_wif': re.compile(r'\b[5KL][1-9A-HJ-NP-Za-km-z]{50,51}\b'),
+    'github_repo': re.compile(r'https?://(?:www\.)?github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+'),
+    'sql_injection': re.compile(r"(?i)\b(SELECT|INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|EXEC)\b"),
+    'unix_path': re.compile(r'(/(?:[\w._-]+/)*[\w._-]+)'),
+    'base32': re.compile(r'\b(?:[A-Z2-7]{8,})\b'),
+    'bitcoin_cash': re.compile(r'\b(?:q|p)[a-z0-9]{41}\b'),
+    'passport': re.compile(r'\b\d{9}\b'),
+    'win_registry': re.compile(r'(?:HKEY_LOCAL_MACHINE|HKEY_CURRENT_USER|HKEY_CLASSES_ROOT|HKEY_USERS|HKEY_CURRENT_CONFIG)\\[\\\w]+'),
+    # Regex OSINT adicionais
+    'onion_v2': re.compile(r'\b[a-z2-7]{16}\.onion\b'),
+    'onion_v3': re.compile(r'\b[a-z2-7]{56}\.onion\b'),
+    'domain': re.compile(r'\b(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}\b'),
+    'e164_phone': re.compile(r'\+\d{10,15}'),
+    'geo_coordinates': re.compile(r'[-+]?([1-8]?\d(\.\d+)?|90(\.0+)?)[, ]+\s*[-+]?((1[0-7]\d)|([1-9]?\d))(\.\d+)?')
 }
 
 # ===== Funções de Download e Carregamento do Modelo =====
@@ -847,41 +956,7 @@ def advanced_forensic_analysis(text: str) -> dict:
         for key, pattern in COMPILED_REGEX_PATTERNS.items():
             matches = pattern.findall(text)
             if matches:
-                label = {
-                    'ip': 'Endereços IPv4',
-                    'ipv6': 'Endereços IPv6',
-                    'email': 'E-mails',
-                    'phone': 'Telefones',
-                    'url': 'URLs',
-                    'mac': 'Endereços MAC',
-                    'md5': 'Hashes MD5',
-                    'sha1': 'Hashes SHA1',
-                    'sha256': 'Hashes SHA256',
-                    'cve': 'IDs CVE',
-                    'imei': 'IMEI',
-                    'cpf': 'CPF',
-                    'cnpj': 'CNPJ',
-                    'ssn': 'SSN',
-                    'uuid': 'UUID',
-                    'cc': 'Cartões de Crédito',
-                    'btc': 'Endereço Bitcoin',
-                    'ethereum': 'Ethereum Address',
-                    'jwt': 'Token JWT',
-                    'cidr': 'CIDR Notation',
-                    'iso8601': 'Timestamp ISO8601',
-                    'sha512': 'Hashes SHA-512',
-                    'base64': 'String Base64',
-                    'google_api_key': 'Chave API Google',
-                    'iban': 'Número IBAN',
-                    'us_phone': 'Telefone (EUA)',
-                    'twitter_handle': 'Twitter Handle',
-                    'date_mmddyyyy': 'Data (MM/DD/YYYY)',
-                    'win_path': 'Caminho Windows',
-                    'ipv4_port': 'IPv4 com Porta',
-                    'http_status': 'Código HTTP',
-                    'version': 'Número de Versão'
-                }.get(key, key)
-                forensic_info[label] = list(set(matches))
+                forensic_info[key] = list(set(matches))
     except Exception as e:
         logger.error(f"❌ Erro durante a análise forense: {e}")
     return forensic_info
