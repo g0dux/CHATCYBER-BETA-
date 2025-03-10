@@ -13,3 +13,4 @@ GPUtil
 setuptools
 prometheus_client
 pyshark
+gradio
