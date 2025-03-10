@@ -37,6 +37,7 @@ from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_
 import tempfile
 import multiprocessing
 import socket  # Necessário para descoberta de IP
+import gradio as gr  # Integração com Gradio.live
 
 # Tenta importar pyshark para análise de tráfego de rede
 try:
@@ -708,7 +709,6 @@ def metrics():
 
 # ===== COMPILED_REGEX_PATTERNS =====
 COMPILED_REGEX_PATTERNS = {
-    # Padrões originais
     'ip': re.compile(r'\b(?:\d{1,3}\.){3}\d{1,3}\b'),
     'ipv6': re.compile(r'\b(?:[A-Fa-f0-9]{1,4}:){7}[A-Fa-f0-9]{1,4}\b'),
     'email': re.compile(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'),
@@ -726,7 +726,6 @@ COMPILED_REGEX_PATTERNS = {
     'uuid': re.compile(r'\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b'),
     'cc': re.compile(r'\b(?:\d[ -]*?){13,16}\b'),
     'btc': re.compile(r'\b(?:[13][a-km-zA-HJ-NP-Z1-9]{25,34})\b'),
-    # Padrões para investigação e IA
     'ethereum': re.compile(r'\b0x[a-fA-F0-9]{40}\b'),
     'jwt': re.compile(r'\beyJ[a-zA-Z0-9-_]+?\.[a-zA-Z0-9-_]+?\.[a-zA-Z0-9-_]+?\b'),
     'cidr': re.compile(r'\b(?:\d{1,3}\.){3}\d{1,3}/\d{1,2}\b'),
@@ -742,7 +741,6 @@ COMPILED_REGEX_PATTERNS = {
     'ipv4_port': re.compile(r'\b(?:\d{1,3}\.){3}\d{1,3}:\d+\b'),
     'http_status': re.compile(r'HTTP/\d\.\d"\s(\d{3})\b'),
     'version': re.compile(r'\b\d+\.\d+(\.\d+)?\b'),
-    # Padrões adicionais
     'bitcoin_wif': re.compile(r'\b[5KL][1-9A-HJ-NP-Za-km-z]{50,51}\b'),
     'github_repo': re.compile(r'https?://(?:www\.)?github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+'),
     'sql_injection': re.compile(r"(?i)\b(SELECT|INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|EXEC)\b"),
@@ -751,7 +749,6 @@ COMPILED_REGEX_PATTERNS = {
     'bitcoin_cash': re.compile(r'\b(?:q|p)[a-z0-9]{41}\b'),
     'passport': re.compile(r'\b\d{9}\b'),
     'win_registry': re.compile(r'(?:HKEY_LOCAL_MACHINE|HKEY_CURRENT_USER|HKEY_CLASSES_ROOT|HKEY_USERS|HKEY_CURRENT_CONFIG)\\[\\\w]+'),
-    # Regex OSINT adicionais
     'onion_v2': re.compile(r'\b[a-z2-7]{16}\.onion\b'),
     'onion_v3': re.compile(r'\b[a-z2-7]{56}\.onion\b'),
     'domain': re.compile(r'\b(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}\b'),
@@ -872,18 +869,11 @@ def correct_language(text: str, lang_config: dict) -> str:
 
 # ===== Novo Modo: Descoberta de IP =====
 def discover_ip(target: str) -> dict:
-    """
-    Tenta descobrir o(s) IP(s) do alvo informado.
-    Se o alvo já for um IP válido (IPv4 ou IPv6), retorna-o diretamente.
-    Caso contrário, realiza resolução DNS para obter hostname, aliases e IPs.
-    """
     try:
-        # Verifica se o target já é um IP válido
         ipv4_pattern = re.compile(r'^(?:\d{1,3}\.){3}\d{1,3}$')
         ipv6_pattern = re.compile(r'^[A-Fa-f0-9:]+$')
         if ipv4_pattern.match(target) or ipv6_pattern.match(target):
             return {'target': target, 'ip': target, 'method': 'Já é um IP válido'}
-        # Caso contrário, realiza resolução DNS
         hostname, aliases, ip_addresses = socket.gethostbyname_ex(target)
         return {
             'target': target,
@@ -920,8 +910,9 @@ def ask():
             investigation_focus = request.form.get('investigation_focus', '')
             search_news = request.form.get('search_news', 'false').lower() == 'true'
             search_leaked_data = request.form.get('search_leaked_data', 'false').lower() == 'true'
-            response_text = process_investigation(user_input, sites_meta, investigation_focus, search_news, search_leaked_data)
-            return jsonify({'response': response_text})
+            report, links_table = process_investigation(user_input, sites_meta, investigation_focus, search_news, search_leaked_data)
+            final_report = report + "<br><br>Links encontrados:<br>" + links_table
+            return jsonify({'response': final_report})
         except Exception as e:
             logger.error(f"Erro no modo Investigação: {e}")
             return jsonify({'error': str(e)}), 500
@@ -1039,10 +1030,10 @@ def format_search_results(results: list, section_title: str) -> tuple:
     return formatted_text, links_table, info_message
 
 def process_investigation(target: str, sites_meta: int = 5, investigation_focus: str = "",
-                          search_news: bool = False, search_leaked_data: bool = False) -> str:
+                          search_news: bool = False, search_leaked_data: bool = False) -> tuple:
     logger.info(f"🔍 Iniciando investigação para: {repr(target)}")
     if not target.strip():
-        return "Erro: Por favor, insira um alvo para investigação."
+        return "Erro: Por favor, insira um alvo para investigação.", ""
     
     search_tasks = {}
     with concurrent.futures.ThreadPoolExecutor() as executor:
@@ -1091,11 +1082,10 @@ def process_investigation(target: str, sites_meta: int = 5, investigation_focus:
         )
         report = investigation_response['choices'][0]['message']['content']
         links_combined = links_web + (links_news if links_news else "") + (links_leaked if links_leaked else "")
-        final_report = report + "<br><br>Links encontrados:<br>" + links_combined
-        return final_report
+        return report, links_combined
     except Exception as e:
         logger.error(f"❌ Erro na investigação: {e}")
-        return f"Erro na investigação: {e}"
+        return f"Erro na investigação: {e}", ""
 
 # ===== Função para Análise de E-mails =====
 def analyze_email_forensics(raw_email: bytes) -> dict:
@@ -1197,40 +1187,32 @@ NETWORK_REGEX_PATTERNS = {
 
 def process_pcap(pcap_path):
     try:
-        # Usando only_summaries para otimizar o processamento
         cap = pyshark.FileCapture(pcap_path, only_summaries=True)
         protocol_count = {}
         ip_count = {}
         port_count = {}
         alerts = []
         total_packets = 0
-
         for packet in cap:
             total_packets += 1
-
             if hasattr(packet, 'protocol'):
                 protocol = packet.protocol
                 protocol_count[protocol] = protocol_count.get(protocol, 0) + 1
-
             if hasattr(packet, 'source'):
                 ip = packet.source
                 ip_count[ip] = ip_count.get(ip, 0) + 1
                 if NETWORK_REGEX_PATTERNS["IP_SUSPEITO"].search(ip):
                     alerts.append(f"⚠️ IP suspeito detectado: {ip}")
-
             if hasattr(packet, 'destination'):
                 ip = packet.destination
                 ip_count[ip] = ip_count.get(ip, 0) + 1
-
             if hasattr(packet, 'info') and packet.info:
                 ports = re.findall(r":(\d+)", packet.info)
                 for port in ports:
                     port_count[port] = port_count.get(port, 0) + 1
-
             if hasattr(packet, 'info') and packet.info:
                 if NETWORK_REGEX_PATTERNS["USER_AGENT_SUSPEITO"].search(packet.info):
                     alerts.append(f"⚠️ User-Agent suspeito detectado: {packet.info}")
-
         cap.close()
         result = {
             "total_packets": total_packets,
@@ -1240,7 +1222,6 @@ def process_pcap(pcap_path):
             "alerts": alerts
         }
         return result
-
     except Exception as e:
         return {"error": str(e)}
 
@@ -1286,8 +1267,47 @@ def get_tunnel_password():
     except Exception as e:
         print("Erro ao obter tunnel password:", e)
 
+# ===== Integração com Gradio.live =====
+def gradio_interface(query, mode, language, style, investigation_focus, search_news, search_leaked_data):
+    if mode == "Chat":
+        result = generate_response(query, language, style)
+        return result, ""  # Segundo campo vazio
+    elif mode == "Investigação":
+        report, links_table = process_investigation(query, sites_meta=5, investigation_focus=investigation_focus,
+                                                     search_news=search_news, search_leaked_data=search_leaked_data)
+        return report, links_table
+    else:
+        return "Modo não suportado.", ""
+
+# Configuramos dois outputs: um para o relatório e outro para a tabela de links
+iface = gr.Interface(
+    fn=gradio_interface,
+    inputs=[
+        gr.Textbox(label="Pergunta/Alvo", placeholder="Digite sua pergunta (Chat) ou o alvo (Investigação)..."),
+        gr.Radio(["Chat", "Investigação"], label="Modo", value="Chat"),
+        gr.Radio(["Português", "English", "Español", "Français", "Deutsch"], label="Idioma", value="Português"),
+        gr.Radio(["Técnico", "Criativo"], label="Estilo", value="Técnico"),
+        gr.Textbox(label="Foco da Investigação (opcional)", placeholder="Ex: vulnerabilidades, evidências, etc."),
+        gr.Checkbox(label="Pesquisar Notícias", value=False),
+        gr.Checkbox(label="Pesquisar Dados Vazados", value=False)
+    ],
+    outputs=[
+        gr.HTML(label="Relatório"),
+        gr.HTML(label="Links Encontrados")
+    ],
+    title="Interface de IA - Chat & Investigação",
+    description="Selecione o modo desejado para interagir com a IA: Chat ou Investigação."
+)
+
+def launch_gradio():
+    print("Iniciando Gradio sem especificar porta (o sistema escolherá uma porta livre).")
+    iface.launch(share=True)
+
 # ===== Execução da Aplicação =====
 if __name__ == '__main__':
+    gradio_thread = threading.Thread(target=launch_gradio, daemon=True)
+    gradio_thread.start()
+
     ensure_localtunnel_installed()
 
     def read_lt_output(process):
@@ -1305,5 +1325,5 @@ if __name__ == '__main__':
     
     get_tunnel_password()
     
-    print("Executando a aplicação Flask...")
+    print("Executando a aplicação Flask na porta 5000...")
     app.run(host='0.0.0.0', port=5000, debug=True)
