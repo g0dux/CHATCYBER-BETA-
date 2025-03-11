@@ -1020,12 +1020,12 @@ def format_search_results(results: list, section_title: str) -> tuple:
     links_table = (
         f"<h3>{section_title}</h3>"
         "<table border='1' style='width:100%; border-collapse: collapse; text-align: left;'>"
-        "<thead><tr><th>Título</th><th>Link</th></tr></thead><tbody>"
+        "<thead><tr><th>Nº</th><th>Título</th><th>Link</th></tr></thead><tbody>"
     )
-    for res in results:
+    for i, res in enumerate(results, 1):
         title = res.get('title', 'Sem título')
         href = res.get('href', 'Sem link')
-        links_table += f"<tr><td>{title}</td><td><a href='{href}' target='_blank'>{href}</a></td></tr>"
+        links_table += f"<tr><td>{i}</td><td>{title}</td><td><a href='{href}' target='_blank'>{href}</a></td></tr>"
     links_table += "</tbody></table>"
     return formatted_text, links_table, info_message
 
@@ -1236,94 +1236,51 @@ def network_analysis():
         result = pool.apply(process_pcap, (pcap_path,))
     return jsonify(result)
 
-# ===== Funções para LocalTunnel (opcional) =====
-def ensure_localtunnel_installed():
-    try:
-        result = subprocess.run("which lt", shell=True, capture_output=True, text=True)
-        if not result.stdout.strip():
-            print("LocalTunnel não encontrado. Verificando se npm está disponível...")
-            npm_result = subprocess.run("which npm", shell=True, capture_output=True, text=True)
-            if not npm_result.stdout.strip():
-                print("npm não está disponível. Instale Node.js e npm manualmente.")
-                return
-            else:
-                print("Instalando LocalTunnel via npm...")
-                subprocess.run("npm install -g localtunnel", shell=True, check=True)
-                print("LocalTunnel instalado com sucesso!")
-        else:
-            print("LocalTunnel já está instalado.")
-    except Exception as e:
-        print("Erro ao verificar ou instalar LocalTunnel:", e)
-
-def get_tunnel_password():
-    try:
-        time.sleep(3)
-        result = subprocess.run("curl https://loca.lt/mytunnelpassword", shell=True, capture_output=True, text=True)
-        password = result.stdout.strip()
-        if password:
-            print("Tunnel Password:", password)
-        else:
-            print("Não foi possível obter o tunnel password.")
-    except Exception as e:
-        print("Erro ao obter tunnel password:", e)
-
-# ===== Integração com Gradio.live =====
-def gradio_interface(query, mode, language, style, investigation_focus, search_news, search_leaked_data):
+# ===== Integração com Gradio.live (Interface Aprimorada) =====
+def gradio_interface(query, mode, language, style, investigation_focus, num_sites, search_news, search_leaked_data):
     if mode == "Chat":
         result = generate_response(query, language, style)
-        return result, ""  # Segundo campo vazio
+        return result, ""  # Segundo campo vazio para links
     elif mode == "Investigação":
-        report, links_table = process_investigation(query, sites_meta=5, investigation_focus=investigation_focus,
-                                                     search_news=search_news, search_leaked_data=search_leaked_data)
+        sites_meta = int(num_sites)
+        report, links_table = process_investigation(query, sites_meta, investigation_focus,
+                                                     search_news, search_leaked_data)
         return report, links_table
     else:
         return "Modo não suportado.", ""
 
-# Configuramos dois outputs: um para o relatório e outro para a tabela de links
-iface = gr.Interface(
-    fn=gradio_interface,
-    inputs=[
-        gr.Textbox(label="Pergunta/Alvo", placeholder="Digite sua pergunta (Chat) ou o alvo (Investigação)..."),
-        gr.Radio(["Chat", "Investigação"], label="Modo", value="Chat"),
-        gr.Radio(["Português", "English", "Español", "Français", "Deutsch"], label="Idioma", value="Português"),
-        gr.Radio(["Técnico", "Criativo"], label="Estilo", value="Técnico"),
-        gr.Textbox(label="Foco da Investigação (opcional)", placeholder="Ex: vulnerabilidades, evidências, etc."),
-        gr.Checkbox(label="Pesquisar Notícias", value=False),
-        gr.Checkbox(label="Pesquisar Dados Vazados", value=False)
-    ],
-    outputs=[
-        gr.HTML(label="Relatório"),
-        gr.HTML(label="Links Encontrados")
-    ],
-    title="Interface de IA - Chat & Investigação",
-    description="Selecione o modo desejado para interagir com a IA: Chat ou Investigação."
-)
+def build_gradio_interface():
+    with gr.Blocks(title="Interface de IA - Chat & Investigação") as demo:
+        gr.Markdown("# Interface de IA - Chat & Investigação")
+        gr.Markdown("### Insira os parâmetros para interagir com a IA")
+        with gr.Row():
+            with gr.Column(scale=1):
+                query_input = gr.Textbox(label="Pergunta/Alvo", placeholder="Digite sua pergunta (Chat) ou o alvo (Investigação)...", lines=3)
+                mode_input = gr.Radio(["Chat", "Investigação"], label="Modo", value="Chat", interactive=True)
+                language_input = gr.Radio(["Português", "English", "Español", "Français", "Deutsch"], label="Idioma", value="Português", interactive=True)
+                style_input = gr.Radio(["Técnico", "Criativo"], label="Estilo", value="Técnico", interactive=True)
+                investigation_focus = gr.Textbox(label="Foco da Investigação (opcional)", placeholder="Ex: vulnerabilidades, evidências, etc.", lines=1)
+                num_sites = gr.Number(label="Número de Sites", value=5, precision=0)
+                search_news = gr.Checkbox(label="Pesquisar Notícias", value=False)
+                search_leaked_data = gr.Checkbox(label="Pesquisar Dados Vazados", value=False)
+                submit_btn = gr.Button("Enviar")
+            with gr.Column(scale=1):
+                report_output = gr.HTML(label="Relatório")
+                links_output = gr.HTML(label="Links Encontrados")
+        submit_btn.click(gradio_interface, inputs=[query_input, mode_input, language_input, style_input,
+                                                     investigation_focus, num_sites, search_news, search_leaked_data],
+                         outputs=[report_output, links_output])
+    return demo
+
+demo = build_gradio_interface()
 
 def launch_gradio():
-    print("Iniciando Gradio sem especificar porta (o sistema escolherá uma porta livre).")
-    iface.launch(share=True)
+    print("Iniciando Gradio (o sistema escolherá uma porta livre).")
+    demo.launch(share=True)
 
 # ===== Execução da Aplicação =====
 if __name__ == '__main__':
     gradio_thread = threading.Thread(target=launch_gradio, daemon=True)
     gradio_thread.start()
-
-    ensure_localtunnel_installed()
-
-    def read_lt_output(process):
-        for line in process.stdout:
-            if "your url is:" in line.lower():
-                print("LocalTunnel URL:", line.strip())
-            else:
-                print("LocalTunnel:", line.strip())
-
-    lt_command = "lt --port 5000"
-    print("Iniciando LocalTunnel para expor a aplicação na porta 5000...")
-    lt_process = subprocess.Popen(lt_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    lt_thread = threading.Thread(target=read_lt_output, args=(lt_process,), daemon=True)
-    lt_thread.start()
-    
-    get_tunnel_password()
-    
     print("Executando a aplicação Flask na porta 5000...")
     app.run(host='0.0.0.0', port=5000, debug=True)
