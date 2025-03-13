@@ -33,7 +33,6 @@ import tempfile
 import multiprocessing
 import socket  # Necessário para descoberta de IP
 import gradio as gr  # Integração com Gradio.live
-from bs4 import BeautifulSoup  # Para scraping de conteúdo
 
 # Tenta importar pyshark para análise de tráfego de rede
 try:
@@ -75,7 +74,7 @@ def set_cached_response(query: str, lang: str, style: str, response_text: str, t
     key = f"response:{query}:{lang}:{style}"
     cache[key] = response_text  # TTL não implementado nesta versão
 
-# ===== COMPILED_REGEX_PATTERNS (Definição original) =====
+# ===== COMPILED_REGEX_PATTERNS =====
 COMPILED_REGEX_PATTERNS = {
     'ip': re.compile(r'\b(?:\d{1,3}\.){3}\d{1,3}\b'),
     'ipv6': re.compile(r'\b(?:[A-Fa-f0-9]{1,4}:){7}[A-Fa-f0-9]{1,4}\b'),
@@ -171,32 +170,28 @@ def load_model() -> Llama:
 
 model = load_model()
 
-# ===== Funções para Geração de Resposta e Multi-turn Conversation =====
-def build_messages(query: str, lang_config: dict, style: str, conversation_history: list = None) -> tuple[list, float]:
-    """
-    Cria as mensagens do sistema com base no histórico de conversa (se houver).
-    """
+# ===== Funções para Geração de Resposta e Validação de Idioma =====
+def build_messages(query: str, lang_config: dict, style: str) -> tuple[list, float]:
     if style == "Técnico":
         system_instruction = f"{lang_config['instruction']}. Seja detalhado e técnico."
         temperature = 0.7
     else:
         system_instruction = f"{lang_config['instruction']}. Responda de forma livre e criativa."
         temperature = 0.9
-
-    messages = [{"role": "system", "content": system_instruction}]
-    if conversation_history:
-        messages.extend(conversation_history)
-    messages.append({"role": "user", "content": query})
+    messages = [
+        {"role": "system", "content": system_instruction},
+        {"role": "user", "content": query}
+    ]
     return messages, temperature
 
-def generate_response_multi_turn(query: str, conversation_history: list, lang: str, style: str) -> tuple[str, list]:
-    """
-    Gera resposta levando em conta o histórico de conversa.
-    Retorna a resposta e o histórico atualizado.
-    """
+def generate_response(query: str, lang: str, style: str) -> str:
     start_time = time.time()
+    cached_text = get_cached_response(query, lang, style)
+    if cached_text:
+        logger.info(f"✅ Resposta obtida do cache em {time.time() - start_time:.2f}s")
+        return cached_text
     lang_config = LANGUAGE_MAP.get(lang, LANGUAGE_MAP['Português'])
-    messages, temperature = build_messages(query, lang_config, style, conversation_history)
+    messages, temperature = build_messages(query, lang_config, style)
     try:
         response = model.create_chat_completion(
             messages=messages,
@@ -206,13 +201,12 @@ def generate_response_multi_turn(query: str, conversation_history: list, lang: s
         )
         raw_response = response['choices'][0]['message']['content']
         final_response = validate_language(raw_response, lang_config)
-        conversation_history.append({"role": "user", "content": query})
-        conversation_history.append({"role": "assistant", "content": final_response})
         logger.info(f"✅ Resposta gerada em {time.time() - start_time:.2f}s")
-        return final_response, conversation_history
+        set_cached_response(query, lang, style, final_response)
+        return final_response
     except Exception as e:
         logger.error(f"❌ Erro ao gerar resposta: {e}")
-        return f"Erro ao gerar resposta: {e}", conversation_history
+        return f"Erro ao gerar resposta: {e}"
 
 def validate_language(text: str, lang_config: dict) -> str:
     try:
@@ -241,184 +235,187 @@ def correct_language(text: str, lang_config: dict) -> str:
         logger.error(f"❌ Erro na correção de idioma: {e}")
         return text
 
-# ===== Módulo de Sumarização =====
-def summarize_text(text: str, lang: str, detail_level: str) -> str:
-    """
-    Gera um resumo do texto com o nível de detalhe desejado.
-    detail_level pode ser 'Resumo', 'Intermediário' ou 'Detalhado'
-    """
-    lang_config = LANGUAGE_MAP.get(lang, LANGUAGE_MAP['Português'])
-    prompt = f"{lang_config['instruction']}. Por favor, resuma o seguinte texto com um nível de detalhe {detail_level}:\n\n{text}"
+# ===== Funções de Análise Forense e Processamento de Texto =====
+def advanced_forensic_analysis(text: str) -> dict:
+    forensic_info = {}
     try:
-        response = model.create_chat_completion(
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.5,
-            max_tokens=600,
-            stop=["</s>"]
-        )
-        summary = response['choices'][0]['message']['content']
-        return summary
+        for key, pattern in COMPILED_REGEX_PATTERNS.items():
+            matches = pattern.findall(text)
+            if matches:
+                forensic_info[key] = list(set(matches))
     except Exception as e:
-        logger.error(f"❌ Erro ao gerar resumo: {e}")
-        return f"Erro ao resumir o texto: {e}"
+        logger.error(f"❌ Erro durante a análise forense: {e}")
+    return forensic_info
 
-# ===== Mecanismo de Busca Avançado =====
-def scrape_page(url: str) -> dict:
-    """
-    Tenta extrair informações básicas (título e meta descrição) da página.
-    """
+def convert_to_degrees(value) -> float:
+    try:
+        d, m, s = value
+        degrees = d[0] / d[1]
+        minutes = m[0] / m[1] / 60
+        seconds = s[0] / s[1] / 3600
+        return degrees + minutes + seconds
+    except Exception as e:
+        logger.error(f"❌ Erro na conversão de coordenadas: {e}")
+        raise e
+
+def analyze_image_metadata(url: str) -> dict:
     try:
         response = requests.get(url, timeout=10)
-        soup = BeautifulSoup(response.text, "html.parser")
-        title = soup.title.string if soup.title else "Sem título"
-        meta_desc_tag = soup.find("meta", attrs={"name": "description"})
-        meta_desc = meta_desc_tag["content"] if meta_desc_tag and "content" in meta_desc_tag.attrs else ""
-        return {"title": title, "description": meta_desc}
+        response.raise_for_status()
+        image_data = response.content
+        image = Image.open(io.BytesIO(image_data))
+        exif = image._getexif()
+        meta = {}
+        if exif:
+            for tag_id, value in exif.items():
+                tag = Image.ExifTags.TAGS.get(tag_id, tag_id)
+                meta[tag] = value
+            if "GPSInfo" in meta:
+                gps_info = meta["GPSInfo"]
+                try:
+                    lat = convert_to_degrees(gps_info.get(2))
+                    if gps_info.get(1) != "N":
+                        lat = -lat
+                    lon = convert_to_degrees(gps_info.get(4))
+                    if gps_info.get(3) != "E":
+                        lon = -lon
+                    meta["GPS Coordinates"] = f"{lat}, {lon} (Google Maps: https://maps.google.com/?q={lat},{lon})"
+                except Exception as e:
+                    meta["GPS Extraction Error"] = str(e)
+        else:
+            meta["info"] = "Nenhum metadado EXIF encontrado."
+        return meta
     except Exception as e:
-        logger.error(f"Erro ao fazer scraping da página {url}: {e}")
-        return {"title": "Erro", "description": ""}
+        logger.error(f"❌ Erro ao analisar metadados da imagem: {e}")
+        return {"error": str(e)}
 
-def advanced_search(query: str, max_results: int, advanced: bool = False) -> list:
-    """
-    Realiza uma busca utilizando DuckDuckGo e, se advanced=True,
-    tenta fazer scraping adicional dos links encontrados.
-    """
-    results = []
+# ===== Funcionalidades de Investigação Online =====
+def perform_search(query: str, search_type: str, max_results: int) -> list:
     try:
         with DDGS() as ddgs:
-            ddgs_results = list(ddgs.text(keywords=query, max_results=max_results))
-        for res in ddgs_results:
-            if advanced:
-                extra = scrape_page(res.get('href', ''))
-                res['scraped_title'] = extra.get('title', '')
-                res['scraped_description'] = extra.get('description', '')
-            results.append(res)
-        return results
+            if search_type == 'web':
+                return list(ddgs.text(keywords=query, max_results=max_results))
+            elif search_type == 'news':
+                return list(ddgs.news(keywords=query, max_results=max_results))
+            elif search_type == 'leaked':
+                return list(ddgs.text(keywords=f"{query} leaked", max_results=max_results))
+            else:
+                return []
     except Exception as e:
-        logger.error(f"Erro na busca avançada: {e}")
-        return results
+        logger.error(f"Erro na busca ({search_type}): {e}")
+        return []
 
-# ===== Análise de Sentimentos e Detecção de Nuances Linguísticas =====
-def detect_linguistic_nuances(text: str, lang: str) -> str:
-    """
-    Utiliza o modelo para identificar ironia, sarcasmo ou nuances no texto.
-    Também complementa com análise de sentimento usando VADER.
-    """
-    prompt = f"Analise o seguinte texto e identifique se há indícios de ironia, sarcasmo ou outras nuances linguísticas:\n\n{text}"
+def format_search_results(results: list, section_title: str) -> tuple:
+    count = len(results)
+    info_message = f"Apenas {count} resultados encontrados para '{section_title}'.<br>" if count < 1 else ""
+    formatted_text = "<br>".join(
+        f"• {res.get('title', 'Sem título')}<br>&nbsp;&nbsp;{res.get('href', 'Sem link')}<br>&nbsp;&nbsp;{res.get('body', '')}"
+        for res in results
+    )
+    links_table = (
+        f"<h3>{section_title}</h3>"
+        "<table border='1' style='width:100%; border-collapse: collapse; text-align: left;'>"
+        "<thead><tr><th>Nº</th><th>Título</th><th>Link</th></tr></thead><tbody>"
+    )
+    for i, res in enumerate(results, 1):
+        title = res.get('title', 'Sem título')
+        href = res.get('href', 'Sem link')
+        links_table += f"<tr><td>{i}</td><td>{title}</td><td><a href='{href}' target='_blank'>{href}</a></td></tr>"
+    links_table += "</tbody></table>"
+    return formatted_text, links_table, info_message
+
+def process_investigation(target: str, sites_meta: int = 5, investigation_focus: str = "",
+                          search_news: bool = False, search_leaked_data: bool = False) -> tuple:
+    logger.info(f"🔍 Iniciando investigação para: {repr(target)}")
+    if not target.strip():
+        return "Erro: Por favor, insira um alvo para investigação.", ""
+    
+    search_tasks = {}
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        search_tasks['web'] = executor.submit(perform_search, target, 'web', sites_meta)
+        if search_news:
+            search_tasks['news'] = executor.submit(perform_search, target, 'news', sites_meta)
+        if search_leaked_data:
+            search_tasks['leaked'] = executor.submit(perform_search, target, 'leaked', sites_meta)
+    
+    results_web = search_tasks['web'].result() if 'web' in search_tasks else []
+    results_news = search_tasks['news'].result() if 'news' in search_tasks else []
+    results_leaked = search_tasks['leaked'].result() if 'leaked' in search_tasks else []
+    
+    formatted_web, links_web, info_web = format_search_results(results_web, "Sites")
+    formatted_news, links_news, info_news = ("", "", "") if not results_news else format_search_results(results_news, "Notícias")
+    formatted_leaked, links_leaked, info_leaked = ("", "", "") if not results_leaked else format_search_results(results_leaked, "Dados Vazados")
+    
+    combined_results_text = ""
+    if formatted_web:
+        combined_results_text += "<br><br>Resultados de Sites:<br>" + formatted_web
+    if formatted_news:
+        combined_results_text += "<br><br>Notícias:<br>" + formatted_news
+    if formatted_leaked:
+        combined_results_text += "<br><br>Dados Vazados:<br>" + formatted_leaked
+    
+    forensic_analysis = advanced_forensic_analysis(combined_results_text)
+    forensic_details = "<br>".join(f"{k}: {v}" for k, v in forensic_analysis.items() if v)
+    
+    investigation_prompt = f"Analise os dados obtidos sobre '{target}'"
+    if investigation_focus:
+        investigation_prompt += f", focando em '{investigation_focus}'"
+    investigation_prompt += "<br>" + combined_results_text
+    if forensic_details:
+        investigation_prompt += "<br><br>Análise Forense Extraída:<br>" + forensic_details
+    investigation_prompt += "<br><br>Elabore um relatório detalhado com ligações, riscos e informações relevantes."
+    
     try:
-        response = model.create_chat_completion(
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.3,
-            max_tokens=300,
+        investigation_response = model.create_chat_completion(
+            messages=[
+                {"role": "system", "content": "Você é um perito policial e forense digital, experiente em métodos policiais de investigação. Utilize técnicas de análise de evidências, protocolos forenses e investigação digital para identificar padrões, rastrear conexões e coletar evidências relevantes. Seja minucioso, preciso e detalhado."},
+                {"role": "user", "content": investigation_prompt}
+            ],
+            temperature=0.7,
+            max_tokens=1000,
             stop=["</s>"]
         )
-        nuances = response['choices'][0]['message']['content']
-        sentiment = sentiment_analyzer.polarity_scores(text)
-        nuances += f"\n\nAnálise de Sentimentos (VADER): {sentiment}"
-        return nuances
+        report = investigation_response['choices'][0]['message']['content']
+        links_combined = links_web + (links_news if links_news else "") + (links_leaked if links_leaked else "")
+        return report, links_combined
     except Exception as e:
-        logger.error(f"Erro na detecção de nuances: {e}")
-        return f"Erro na detecção de nuances: {e}"
+        logger.error(f"❌ Erro na investigação: {e}")
+        return f"Erro na investigação: {e}", ""
 
-# ===== Funções Integradas para Chat com Resumo e Nuances =====
-def chat_interface(user_message, chat_history, language, style, summary_flag, nuances_flag, detail_level):
-    """
-    Função para conversas multi-turn com opção de aplicar resumo e análise de nuances na resposta.
-    """
-    response, chat_history = generate_response_multi_turn(user_message, chat_history, language, style)
-    extra_info = ""
-    if summary_flag:
-        summary_text = summarize_text(response, language, detail_level)
-        extra_info += "\n\n<b>Resumo:</b>\n" + summary_text
-    if nuances_flag:
-        nuance_text = detect_linguistic_nuances(response, language)
-        extra_info += "\n\n<b>Análise de Nuances:</b>\n" + nuance_text
-    # Se houver informações extras, anexa-as à resposta da IA
-    final_response = response + extra_info if extra_info else response
-    if chat_history and chat_history[-1]["role"] == "assistant":
-        chat_history[-1]["content"] = final_response
-    formatted_history = []
-    for i in range(0, len(chat_history), 2):
-        user_msg = chat_history[i]["content"]
-        ai_msg = chat_history[i+1]["content"] if i+1 < len(chat_history) else ""
-        formatted_history.append((user_msg, ai_msg))
-    return formatted_history, chat_history
+# ===== Integração com Gradio.live (Interface Aprimorada) =====
+def gradio_interface(query, mode, language, style, investigation_focus, num_sites, search_news, search_leaked_data):
+    if mode == "Chat":
+        result = generate_response(query, language, style)
+        return result, ""  # Segundo campo vazio para links
+    elif mode == "Investigação":
+        sites_meta = int(num_sites)
+        report, links_table = process_investigation(query, sites_meta, investigation_focus,
+                                                     search_news, search_leaked_data)
+        return report, links_table
+    else:
+        return "Modo não suportado.", ""
 
-# ===== Função Integrada para Investigação com Resumo e Nuances =====
-def investigation_interface(query, investigation_focus, num_sites, search_news, search_leaked_data, advanced_search_enabled, language, summary_flag, nuances_flag, detail_level):
-    """
-    Realiza investigação online e, opcionalmente, aplica resumo e análise de nuances ao resultado.
-    """
-    results = advanced_search(query, int(num_sites), advanced=advanced_search_enabled)
-    # Gera um relatório de texto simples com os resultados
-    text_results = ""
-    for i, res in enumerate(results, 1):
-        text_results += f"{i}. {res.get('title', 'Sem título')} - {res.get('href', 'Sem link')}\n"
-    links_table = "<h3>Resultados de Busca para '" + query + "'</h3><br>" + "<br>".join(
-        [f"{i}. <a href='{res.get('href', 'Sem link')}' target='_blank'>{res.get('title', 'Sem título')}</a>" for i, res in enumerate(results, 1)]
-    )
-    extra_info = ""
-    if summary_flag:
-        summary_text = summarize_text(text_results, language, detail_level)
-        extra_info += f"<br><br><b>Resumo:</b><br>{summary_text}"
-    if nuances_flag:
-        nuance_text = detect_linguistic_nuances(text_results, language)
-        extra_info += f"<br><br><b>Análise de Nuances:</b><br>{nuance_text}"
-    final_output = links_table + extra_info
-    return final_output
-
-def clear_history():
-    """
-    Função para limpar o histórico de conversa.
-    """
-    return [], []  # Retorna histórico vazio
-
-# ===== Interface via Gradio =====
 def build_gradio_interface():
-    with gr.Blocks(title="IA Avançada - Chat & Investigação com Resumo e Nuances") as demo:
-        gr.Markdown("# IA Avançada")
-        with gr.Tabs():
-            # Aba de Chat Multi-turn
-            with gr.TabItem("Chat"):
-                chatbot = gr.Chatbot(label="Conversa com a IA")
-                with gr.Row():
-                    txt_input = gr.Textbox(label="Sua mensagem", placeholder="Digite sua mensagem aqui...", lines=2)
-                    send_btn = gr.Button("Enviar")
-                    clear_btn = gr.Button("Limpar Histórico")
-                state = gr.State([])  # Histórico de mensagens
-                with gr.Row():
-                    chat_lang = gr.Radio(["Português", "English", "Español", "Français", "Deutsch"],
-                                           label="Idioma", value="Português", interactive=True)
-                    chat_style = gr.Radio(["Técnico", "Criativo"],
-                                          label="Estilo", value="Técnico", interactive=True)
-                    chat_summary_chk = gr.Checkbox(label="Aplicar Resumo", value=False)
-                    chat_nuances_chk = gr.Checkbox(label="Analisar Nuances", value=False)
-                    chat_detail = gr.Radio(["Resumo", "Intermediário", "Detalhado"],
-                                           label="Nível de Resumo", value="Intermediário", interactive=True)
-                send_btn.click(fn=chat_interface,
-                               inputs=[txt_input, state, chat_lang, chat_style, chat_summary_chk, chat_nuances_chk, chat_detail],
-                               outputs=[chatbot, state])
-                clear_btn.click(fn=clear_history, inputs=[], outputs=[chatbot, state])
-            # Aba de Investigação
-            with gr.TabItem("Investigação"):
-                inv_query = gr.Textbox(label="Alvo/Consulta", placeholder="Digite o que deseja investigar...", lines=2)
-                inv_focus = gr.Textbox(label="Foco da Investigação (opcional)", placeholder="Ex: vulnerabilidades, evidências, etc.", lines=1)
+    with gr.Blocks(title="Interface de IA - Chat & Investigação") as demo:
+        gr.Markdown("# Interface de IA - Chat & Investigação")
+        gr.Markdown("### Insira os parâmetros para interagir com a IA")
+        with gr.Row():
+            with gr.Column(scale=1):
+                query_input = gr.Textbox(label="Pergunta/Alvo", placeholder="Digite sua pergunta (Chat) ou o alvo (Investigação)...", lines=3)
+                mode_input = gr.Radio(["Chat", "Investigação"], label="Modo", value="Chat", interactive=True)
+                language_input = gr.Radio(["Português", "English", "Español", "Français", "Deutsch"], label="Idioma", value="Português", interactive=True)
+                style_input = gr.Radio(["Técnico", "Criativo"], label="Estilo", value="Técnico", interactive=True)
+                investigation_focus = gr.Textbox(label="Foco da Investigação (opcional)", placeholder="Ex: vulnerabilidades, evidências, etc.", lines=1)
                 num_sites = gr.Number(label="Número de Sites", value=5, precision=0)
                 search_news = gr.Checkbox(label="Pesquisar Notícias", value=False)
                 search_leaked_data = gr.Checkbox(label="Pesquisar Dados Vazados", value=False)
-                advanced_search_chk = gr.Checkbox(label="Busca Avançada (Scraping Extra)", value=False)
-                inv_lang = gr.Radio(["Português", "English", "Español", "Français", "Deutsch"],
-                                    label="Idioma", value="Português", interactive=True)
-                inv_summary_chk = gr.Checkbox(label="Aplicar Resumo", value=False)
-                inv_nuances_chk = gr.Checkbox(label="Analisar Nuances", value=False)
-                inv_detail = gr.Radio(["Resumo", "Intermediário", "Detalhado"],
-                                      label="Nível de Resumo", value="Intermediário", interactive=True)
-                inv_output = gr.HTML(label="Resultados da Investigação")
-                inv_btn = gr.Button("Pesquisar")
-                inv_btn.click(fn=investigation_interface,
-                              inputs=[inv_query, inv_focus, num_sites, search_news, search_leaked_data, advanced_search_chk, inv_lang, inv_summary_chk, inv_nuances_chk, inv_detail],
-                              outputs=inv_output)
-        gr.Markdown("### Desenvolvido com funcionalidades avançadas para uma IA interativa e customizável.")
+                submit_btn = gr.Button("Enviar")
+            with gr.Column(scale=1):
+                report_output = gr.HTML(label="Relatório")
+                links_output = gr.HTML(label="Links Encontrados")
+        submit_btn.click(gradio_interface, inputs=[query_input, mode_input, language_input, style_input,
+                                                     investigation_focus, num_sites, search_news, search_leaked_data],
+                         outputs=[report_output, links_output])
     return demo
 
 demo = build_gradio_interface()
@@ -427,5 +424,6 @@ def launch_gradio():
     print("Iniciando Gradio (o sistema escolherá uma porta livre).")
     demo.launch(share=True)
 
+# ===== Execução da Aplicação =====
 if __name__ == '__main__':
     launch_gradio()
