@@ -226,6 +226,18 @@ index_html = """
     .form-options label {
       margin-right: 8px;
     }
+    /* Campo para Temperatura da IA */
+    .form-options input[type="number"] {
+      width: 80px;
+      padding: 4px;
+      border: 1px solid #333;
+      border-radius: 4px;
+      background-color: #141414;
+      color: #e0e0e0;
+      font-size: 14px;
+      transition: border-color 0.3s;
+    }
+    /* Opções para investigação */
     #investigationOptions { display: none; }
     /* Sidebar para anotações */
     .sidebar {
@@ -341,6 +353,10 @@ index_html = """
       background-color: #1a1a1a;
       color: #e0e0e0;
     }
+    /* Novas configurações para área de anotações */
+    #configModal .modal-content form > div.notes-config {
+      margin-bottom: 12px;
+    }
     #configModal button {
       padding: 10px 16px;
       border: none;
@@ -431,6 +447,14 @@ index_html = """
               <option value="Técnico">Técnico</option>
               <option value="Livre">Livre</option>
             </select>
+            <label for="temperature">Temperatura da IA:</label>
+            <input type="number" id="temperature" name="temperature" min="0" max="1" step="0.1" value="0.7">
+            <!-- Nova opção para Velocidade -->
+            <label for="velocidade">Velocidade:</label>
+            <select id="velocidade" name="velocidade">
+              <option value="Detalhada">Detalhada</option>
+              <option value="Rápida">Rápida</option>
+            </select>
             <label>
               <input type="checkbox" id="streaming" name="streaming"> Ativar Streaming
             </label>
@@ -484,6 +508,15 @@ index_html = """
         <div>
           <label for="chatWindowWidth">Largura da janela de chat (px):</label>
           <input type="number" id="chatWindowWidth" name="chatWindowWidth" value="800" min="400" max="1200">
+        </div>
+        <!-- Novas configurações para a área de anotações -->
+        <div class="notes-config">
+          <label for="notesWidth">Largura da área de anotações (px):</label>
+          <input type="number" id="notesWidth" name="notesWidth" value="300" min="100" max="800">
+        </div>
+        <div class="notes-config">
+          <label for="notesHeight">Altura da área de anotações (px):</label>
+          <input type="number" id="notesHeight" name="notesHeight" value="550" min="200" max="800">
         </div>
         <div>
           <label for="bodyBgColor">Cor de fundo do Body:</label>
@@ -570,6 +603,8 @@ index_html = """
       formData.append('mode', document.getElementById("mode").value);
       formData.append('language', document.getElementById("language").value);
       formData.append('style', document.getElementById("style").value);
+      formData.append('temperature', document.getElementById("temperature").value);
+      formData.append('velocidade', document.getElementById("velocidade").value);
       formData.append('sites_meta', document.getElementById("sites_meta").value);
       formData.append('investigation_focus', document.getElementById("investigation_focus").value);
       formData.append('search_news', document.getElementById("search_news").checked);
@@ -650,6 +685,8 @@ index_html = """
       const inputWidth = document.getElementById("inputWidth").value;
       const chatWindowHeight = document.getElementById("chatWindowHeight").value;
       const chatWindowWidth = document.getElementById("chatWindowWidth").value;
+      const notesWidth = document.getElementById("notesWidth").value;
+      const notesHeight = document.getElementById("notesHeight").value;
       const bodyBgColor = document.getElementById("bodyBgColor").value;
       const chatBgColor = document.getElementById("chatBgColor").value;
       const chatTextColor = document.getElementById("chatTextColor").value;
@@ -661,6 +698,7 @@ index_html = """
       customStyles.innerHTML = `
         #chatInput { font-size: ${inputFontSize}px; width: ${inputWidth}px; }
         #chatWindow { height: ${chatWindowHeight}px; width: ${chatWindowWidth}px; background-color: ${chatBgColor}; color: ${chatTextColor}; }
+        .sidebar { width: ${notesWidth}px; height: ${notesHeight}px; }
         .message.user .bubble { background-color: ${userBubbleColor}; }
         .message.ai .bubble { background-color: ${aiBubbleColor}; }
         body { background-color: ${bodyBgColor}; }
@@ -672,6 +710,7 @@ index_html = """
   </script>
 </body>
 </html>
+
 """
 @app.route('/')
 def index():
@@ -804,39 +843,62 @@ def load_model() -> Llama:
 
 model = load_model()
 
+# ===== Função Autocorretora =====
+def autocorrect_text(text: str, lang: str) -> str:
+    """
+    Utiliza o modelo para corrigir erros gramaticais e de digitação no texto.
+    """
+    prompt = f"Corrija os erros de digitação e melhore a gramática do seguinte texto, mantendo o mesmo significado:\n\n{text}"
+    try:
+        correction_response = model.create_chat_completion(
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            max_tokens=200,
+            stop=["</s>"]
+        )
+        corrected_text = correction_response['choices'][0]['message']['content'].strip()
+        return corrected_text
+    except Exception as e:
+        logger.error(f"Erro na autocorreção: {e}")
+        return text
+
 # ===== Funções para Geração de Resposta e Validação de Idioma =====
-def build_messages(query: str, lang_config: dict, style: str) -> tuple[list, float]:
+def build_messages(query: str, lang_config: dict, style: str, custom_temperature: float = None) -> tuple[list, float]:
     if style == "Técnico":
         system_instruction = f"{lang_config['instruction']}. Seja detalhado e técnico."
-        temperature = 0.7
+        default_temp = 0.7
     else:
         system_instruction = f"{lang_config['instruction']}. Responda de forma livre e criativa."
-        temperature = 0.9
+        default_temp = 0.9
     messages = [
         {"role": "system", "content": system_instruction},
         {"role": "user", "content": query}
     ]
+    temperature = custom_temperature if custom_temperature is not None else default_temp
     return messages, temperature
 
-def generate_response(query: str, lang: str, style: str) -> str:
+def generate_response(query: str, lang: str, style: str, custom_temperature: float = None, fast_mode: bool = False) -> str:
+    # Aplica autocorreção
+    corrected_query = autocorrect_text(query, lang)
     start_time = time.time()
-    cached_text = get_cached_response(query, lang, style)
+    cached_text = get_cached_response(corrected_query, lang, style)
     if cached_text:
         logger.info(f"✅ Resposta obtida do cache em {time.time() - start_time:.2f}s")
         return cached_text
     lang_config = LANGUAGE_MAP.get(lang, LANGUAGE_MAP['Português'])
-    messages, temperature = build_messages(query, lang_config, style)
+    messages, temperature = build_messages(corrected_query, lang_config, style, custom_temperature)
+    max_tokens = 400 if fast_mode else 800
     try:
         response = model.create_chat_completion(
             messages=messages,
             temperature=temperature,
-            max_tokens=800,
+            max_tokens=max_tokens,
             stop=["</s>"]
         )
         raw_response = response['choices'][0]['message']['content']
         final_response = validate_language(raw_response, lang_config)
         logger.info(f"✅ Resposta gerada em {time.time() - start_time:.2f}s")
-        set_cached_response(query, lang, style, final_response)
+        set_cached_response(corrected_query, lang, style, final_response)
         return final_response
     except Exception as e:
         logger.error(f"❌ Erro ao gerar resposta: {e}")
@@ -902,6 +964,9 @@ def ask():
     mode = request.form.get('mode', 'Chat')
     lang = request.form.get('language', 'Português')
     style = request.form.get('style', 'Técnico')
+    temp_input = request.form.get('temperature', None)
+    custom_temperature = float(temp_input) if temp_input is not None and temp_input != "" else None
+    fast_mode = request.form.get('fast_mode', 'false').lower() == 'true'
     
     if mode == "Investigação":
         if not user_input.strip():
@@ -911,7 +976,7 @@ def ask():
             investigation_focus = request.form.get('investigation_focus', '')
             search_news = request.form.get('search_news', 'false').lower() == 'true'
             search_leaked_data = request.form.get('search_leaked_data', 'false').lower() == 'true'
-            report, links_table = process_investigation(user_input, sites_meta, investigation_focus, search_news, search_leaked_data)
+            report, links_table = process_investigation(user_input, sites_meta, investigation_focus, search_news, search_leaked_data, custom_temperature, lang, fast_mode)
             final_report = report + "<br><br>Links encontrados:<br>" + links_table
             return jsonify({'response': final_report})
         except Exception as e:
@@ -929,7 +994,7 @@ def ask():
             return jsonify({'error': str(e)}), 500
     else:  # Modo Chat
         try:
-            response_text = generate_response(user_input, lang, style)
+            response_text = generate_response(user_input, lang, style, custom_temperature, fast_mode)
             return jsonify({'response': response_text})
         except Exception as e:
             logger.error(f"Erro no modo Chat: {e}")
@@ -941,7 +1006,7 @@ def streaming_response(text: str, chunk_size: int = 200):
         yield text[i:i+chunk_size]
         time.sleep(0.1)
 
-# ===== Análise Forense e Processamento de Texto =====
+# ===== Funções para Análise Forense e Processamento de Texto =====
 def advanced_forensic_analysis(text: str) -> dict:
     forensic_info = {}
     try:
@@ -953,47 +1018,58 @@ def advanced_forensic_analysis(text: str) -> dict:
         logger.error(f"❌ Erro durante a análise forense: {e}")
     return forensic_info
 
-def convert_to_degrees(value) -> float:
+# --- SISTEMA DE METADADOS ---
+def get_decimal_from_dms(dms, ref):
+    """
+    Converte coordenadas no formato DMS (graus, minutos e segundos) em decimal.
+    dms: tuple contendo três tuplas (graus, minutos, segundos) cada uma no formato (num, den)
+    ref: referência de direção, 'N', 'S', 'E' ou 'W'
+    """
     try:
-        d, m, s = value
-        degrees = d[0] / d[1]
-        minutes = m[0] / m[1] / 60
-        seconds = s[0] / s[1] / 3600
-        return degrees + minutes + seconds
+        degrees = dms[0][0] / dms[0][1]
+        minutes = dms[1][0] / dms[1][1]
+        seconds = dms[2][0] / dms[2][1]
+        decimal = degrees + (minutes / 60.0) + (seconds / 3600.0)
+        if ref in ['S', 'W']:
+            decimal = -decimal
+        return decimal
     except Exception as e:
-        logger.error(f"❌ Erro na conversão de coordenadas: {e}")
-        raise e
+        raise ValueError("Erro ao converter coordenadas DMS para decimal: " + str(e))
 
 def analyze_image_metadata(url: str) -> dict:
+    """
+    Faz o download da imagem a partir de uma URL, extrai os metadados EXIF e,
+    se presentes, converte as informações de GPS para coordenadas decimais.
+    """
     try:
         response = requests.get(url, timeout=10)
         response.raise_for_status()
         image_data = response.content
         image = Image.open(io.BytesIO(image_data))
-        exif = image._getexif()
         meta = {}
-        if exif:
-            for tag_id, value in exif.items():
+        
+        exif_data = image.getexif()
+        if exif_data:
+            for tag_id, value in exif_data.items():
                 tag = Image.ExifTags.TAGS.get(tag_id, tag_id)
                 meta[tag] = value
+
             if "GPSInfo" in meta:
                 gps_info = meta["GPSInfo"]
                 try:
-                    lat = convert_to_degrees(gps_info.get(2))
-                    if gps_info.get(1) != "N":
-                        lat = -lat
-                    lon = convert_to_degrees(gps_info.get(4))
-                    if gps_info.get(3) != "E":
-                        lon = -lon
+                    lat = get_decimal_from_dms(gps_info.get(2), gps_info.get(1))
+                    lon = get_decimal_from_dms(gps_info.get(4), gps_info.get(3))
                     meta["GPS Coordinates"] = f"{lat}, {lon} (Google Maps: https://maps.google.com/?q={lat},{lon})"
                 except Exception as e:
                     meta["GPS Extraction Error"] = str(e)
         else:
             meta["info"] = "Nenhum metadado EXIF encontrado."
+        
         return meta
     except Exception as e:
         logger.error(f"❌ Erro ao analisar metadados da imagem: {e}")
         return {"error": str(e)}
+# --- Fim do sistema de metadados ---
 
 # ===== Funcionalidades de Investigação Online =====
 def perform_search(query: str, search_type: str, max_results: int) -> list:
@@ -1031,26 +1107,30 @@ def format_search_results(results: list, section_title: str) -> tuple:
     return formatted_text, links_table, info_message
 
 def process_investigation(target: str, sites_meta: int = 5, investigation_focus: str = "",
-                          search_news: bool = False, search_leaked_data: bool = False) -> tuple:
+                          search_news: bool = False, search_leaked_data: bool = False, custom_temperature: float = None,
+                          lang: str = "Português", fast_mode: bool = False) -> tuple:
     logger.info(f"🔍 Iniciando investigação para: {repr(target)}")
     if not target.strip():
         return "Erro: Por favor, insira um alvo para investigação.", ""
     
+    # Aplica autocorreção no alvo de investigação
+    corrected_target = autocorrect_text(target, lang)
+    
     search_tasks = {}
     with concurrent.futures.ThreadPoolExecutor() as executor:
-        search_tasks['web'] = executor.submit(perform_search, target, 'web', sites_meta)
+        search_tasks['web'] = executor.submit(perform_search, corrected_target, 'web', sites_meta)
         if search_news:
-            search_tasks['news'] = executor.submit(perform_search, target, 'news', sites_meta)
+            search_tasks['news'] = executor.submit(perform_search, corrected_target, 'news', sites_meta)
         if search_leaked_data:
-            search_tasks['leaked'] = executor.submit(perform_search, target, 'leaked', sites_meta)
+            search_tasks['leaked'] = executor.submit(perform_search, corrected_target, 'leaked', sites_meta)
     
     results_web = search_tasks['web'].result() if 'web' in search_tasks else []
     results_news = search_tasks['news'].result() if 'news' in search_tasks else []
     results_leaked = search_tasks['leaked'].result() if 'leaked' in search_tasks else []
     
-    formatted_web, links_web, info_web = format_search_results(results_web, "Sites")
-    formatted_news, links_news, info_news = ("", "", "") if not results_news else format_search_results(results_news, "Notícias")
-    formatted_leaked, links_leaked, info_leaked = ("", "", "") if not results_leaked else format_search_results(results_leaked, "Dados Vazados")
+    formatted_web, links_web, _ = format_search_results(results_web, "Sites")
+    formatted_news, links_news, _ = ( "", "", "" ) if not results_news else format_search_results(results_news, "Notícias")
+    formatted_leaked, links_leaked, _ = ( "", "", "" ) if not results_leaked else format_search_results(results_leaked, "Dados Vazados")
     
     combined_results_text = ""
     if formatted_web:
@@ -1063,7 +1143,7 @@ def process_investigation(target: str, sites_meta: int = 5, investigation_focus:
     forensic_analysis = advanced_forensic_analysis(combined_results_text)
     forensic_details = "<br>".join(f"{k}: {v}" for k, v in forensic_analysis.items() if v)
     
-    investigation_prompt = f"Analise os dados obtidos sobre '{target}'"
+    investigation_prompt = f"Analise os dados obtidos sobre '{corrected_target}'"
     if investigation_focus:
         investigation_prompt += f", focando em '{investigation_focus}'"
     investigation_prompt += "<br>" + combined_results_text
@@ -1071,14 +1151,18 @@ def process_investigation(target: str, sites_meta: int = 5, investigation_focus:
         investigation_prompt += "<br><br>Análise Forense Extraída:<br>" + forensic_details
     investigation_prompt += "<br><br>Elabore um relatório detalhado com ligações, riscos e informações relevantes."
     
+    temp = custom_temperature if custom_temperature is not None else 0.7
+    max_tokens = 500 if fast_mode else 1000
+    logger.info(f"Utilizando temperatura {temp} na investigação e max_tokens={max_tokens}.")
+    
     try:
         investigation_response = model.create_chat_completion(
             messages=[
                 {"role": "system", "content": "Você é um perito policial e forense digital, experiente em métodos policiais de investigação. Utilize técnicas de análise de evidências, protocolos forenses e investigação digital para identificar padrões, rastrear conexões e coletar evidências relevantes. Seja minucioso, preciso e detalhado."},
                 {"role": "user", "content": investigation_prompt}
             ],
-            temperature=0.7,
-            max_tokens=1000,
+            temperature=temp,
+            max_tokens=max_tokens,
             stop=["</s>"]
         )
         report = investigation_response['choices'][0]['message']['content']
@@ -1238,38 +1322,45 @@ def network_analysis():
     return jsonify(result)
 
 # ===== Integração com Gradio.live (Interface Aprimorada) =====
-def gradio_interface(query, mode, language, style, investigation_focus, num_sites, search_news, search_leaked_data):
+def gradio_interface(query, mode, language, style, investigation_focus, num_sites, search_news, search_leaked_data, temperature, velocidade):
+    custom_temperature = float(temperature) if temperature != "" else None
+    fast_mode = True if velocidade == "Rápida" else False
     if mode == "Chat":
-        result = generate_response(query, language, style)
-        return result, ""  # Segundo campo vazio para links
+        result = generate_response(query, language, style, custom_temperature, fast_mode)
+        return result, ""
     elif mode == "Investigação":
         sites_meta = int(num_sites)
-        report, links_table = process_investigation(query, sites_meta, investigation_focus,
-                                                     search_news, search_leaked_data)
+        report, links_table = process_investigation(query, sites_meta, investigation_focus, search_news, search_leaked_data, custom_temperature, language, fast_mode)
         return report, links_table
+    elif mode == "Metadados":
+        meta = analyze_image_metadata(query)
+        formatted_meta = "<br>".join(f"{k}: {v}" for k, v in meta.items())
+        return formatted_meta, ""
     else:
         return "Modo não suportado.", ""
 
 def build_gradio_interface():
     with gr.Blocks(title="Interface de IA - Chat & Investigação") as demo:
         gr.Markdown("# Interface de IA - Chat & Investigação")
-        gr.Markdown("### Insira os parâmetros para interagir com a IA")
+        gr.Markdown("### Insira os parâmetros para interagir com o sistema")
         with gr.Row():
             with gr.Column(scale=1):
-                query_input = gr.Textbox(label="Pergunta/Alvo", placeholder="Digite sua pergunta (Chat) ou o alvo (Investigação)...", lines=3)
-                mode_input = gr.Radio(["Chat", "Investigação"], label="Modo", value="Chat", interactive=True)
+                query_input = gr.Textbox(label="Pergunta/Alvo", placeholder="Digite sua pergunta (Chat), alvo (Investigação) ou URL de imagem (Metadados)...", lines=3)
+                mode_input = gr.Radio(["Chat", "Investigação", "Metadados"], label="Modo", value="Chat", interactive=True)
                 language_input = gr.Radio(["Português", "English", "Español", "Français", "Deutsch"], label="Idioma", value="Português", interactive=True)
-                style_input = gr.Radio(["Técnico", "Criativo"], label="Estilo", value="Técnico", interactive=True)
+                style_input = gr.Radio(["Técnico", "Livre"], label="Estilo", value="Técnico", interactive=True)
                 investigation_focus = gr.Textbox(label="Foco da Investigação (opcional)", placeholder="Ex: vulnerabilidades, evidências, etc.", lines=1)
                 num_sites = gr.Number(label="Número de Sites", value=5, precision=0)
                 search_news = gr.Checkbox(label="Pesquisar Notícias", value=False)
                 search_leaked_data = gr.Checkbox(label="Pesquisar Dados Vazados", value=False)
+                temperature_input = gr.Slider(label="Temperatura da IA", minimum=0.0, maximum=1.0, step=0.1, value=0.7)
+                velocidade_input = gr.Radio(["Rápida", "Detalhada"], label="Velocidade (menos detalhes / mais detalhes)", value="Detalhada", interactive=True)
                 submit_btn = gr.Button("Enviar")
             with gr.Column(scale=1):
                 report_output = gr.HTML(label="Relatório")
                 links_output = gr.HTML(label="Links Encontrados")
         submit_btn.click(gradio_interface, inputs=[query_input, mode_input, language_input, style_input,
-                                                     investigation_focus, num_sites, search_news, search_leaked_data],
+                                                     investigation_focus, num_sites, search_news, search_leaked_data, temperature_input, velocidade_input],
                          outputs=[report_output, links_output])
     return demo
 
