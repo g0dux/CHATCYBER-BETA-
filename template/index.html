@@ -153,6 +153,18 @@
     .form-options label {
       margin-right: 8px;
     }
+    /* Campo para Temperatura da IA */
+    .form-options input[type="number"] {
+      width: 80px;
+      padding: 4px;
+      border: 1px solid #333;
+      border-radius: 4px;
+      background-color: #141414;
+      color: #e0e0e0;
+      font-size: 14px;
+      transition: border-color 0.3s;
+    }
+    /* Opções para investigação */
     #investigationOptions { display: none; }
     /* Sidebar para anotações */
     .sidebar {
@@ -268,6 +280,10 @@
       background-color: #1a1a1a;
       color: #e0e0e0;
     }
+    /* Novas configurações para área de anotações */
+    #configModal .modal-content form > div.notes-config {
+      margin-bottom: 12px;
+    }
     #configModal button {
       padding: 10px 16px;
       border: none;
@@ -358,6 +374,14 @@
               <option value="Técnico">Técnico</option>
               <option value="Livre">Livre</option>
             </select>
+            <label for="temperature">Temperatura da IA:</label>
+            <input type="number" id="temperature" name="temperature" min="0" max="1" step="0.1" value="0.7">
+            <!-- Nova opção para Velocidade -->
+            <label for="velocidade">Velocidade:</label>
+            <select id="velocidade" name="velocidade">
+              <option value="Detalhada">Detalhada</option>
+              <option value="Rápida">Rápida</option>
+            </select>
             <label>
               <input type="checkbox" id="streaming" name="streaming"> Ativar Streaming
             </label>
@@ -411,6 +435,15 @@
         <div>
           <label for="chatWindowWidth">Largura da janela de chat (px):</label>
           <input type="number" id="chatWindowWidth" name="chatWindowWidth" value="800" min="400" max="1200">
+        </div>
+        <!-- Novas configurações para a área de anotações -->
+        <div class="notes-config">
+          <label for="notesWidth">Largura da área de anotações (px):</label>
+          <input type="number" id="notesWidth" name="notesWidth" value="300" min="100" max="800">
+        </div>
+        <div class="notes-config">
+          <label for="notesHeight">Altura da área de anotações (px):</label>
+          <input type="number" id="notesHeight" name="notesHeight" value="550" min="200" max="800">
         </div>
         <div>
           <label for="bodyBgColor">Cor de fundo do Body:</label>
@@ -497,6 +530,8 @@
       formData.append('mode', document.getElementById("mode").value);
       formData.append('language', document.getElementById("language").value);
       formData.append('style', document.getElementById("style").value);
+      formData.append('temperature', document.getElementById("temperature").value);
+      formData.append('velocidade', document.getElementById("velocidade").value);
       formData.append('sites_meta', document.getElementById("sites_meta").value);
       formData.append('investigation_focus', document.getElementById("investigation_focus").value);
       formData.append('search_news', document.getElementById("search_news").checked);
@@ -577,6 +612,8 @@
       const inputWidth = document.getElementById("inputWidth").value;
       const chatWindowHeight = document.getElementById("chatWindowHeight").value;
       const chatWindowWidth = document.getElementById("chatWindowWidth").value;
+      const notesWidth = document.getElementById("notesWidth").value;
+      const notesHeight = document.getElementById("notesHeight").value;
       const bodyBgColor = document.getElementById("bodyBgColor").value;
       const chatBgColor = document.getElementById("chatBgColor").value;
       const chatTextColor = document.getElementById("chatTextColor").value;
@@ -588,6 +625,7 @@
       customStyles.innerHTML = `
         #chatInput { font-size: ${inputFontSize}px; width: ${inputWidth}px; }
         #chatWindow { height: ${chatWindowHeight}px; width: ${chatWindowWidth}px; background-color: ${chatBgColor}; color: ${chatTextColor}; }
+        .sidebar { width: ${notesWidth}px; height: ${notesHeight}px; }
         .message.user .bubble { background-color: ${userBubbleColor}; }
         .message.ai .bubble { background-color: ${aiBubbleColor}; }
         body { background-color: ${bodyBgColor}; }
