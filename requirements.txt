@@ -12,4 +12,3 @@ GPUtil
 setuptools
 pyshark
 gradio
-bs4
