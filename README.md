@@ -283,7 +283,7 @@ Below are areas for adding screenshots. Make sure to copy your images into an `i
 
 ### Flask Interface
 
-![Flask Interface](screenshot/Captura_de_tela_chat_flask.png)
+![Flask Interface](https://github.com/g0dux/CHATCYBER-BETA-/blob/main/screenshot/Captura%20de%20tela%20chat%20flask.png)
 
 *(Example: place your `Captura_de_tela_chat_flask.png` inside `images/`.)*
 
