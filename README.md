@@ -286,7 +286,7 @@ Below are areas for adding screenshots. Make sure to copy your images into an `i
 ---
 ### Gradio Interface
 
-![Gradio Interface]()
+![Gradio Interface](https://github.com/g0dux/CHATCYBER-BETA-/blob/main/screenshot/Captura%20de%20tela%20de%20chat%20gradio.png)
 
 ---
 
