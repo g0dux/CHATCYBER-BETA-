@@ -278,17 +278,15 @@ This project is licensed under the [MIT License](https://opensource.org/licenses
 
 Below are areas for adding screenshots. Make sure to copy your images into an `images` folder in the repository and update the paths accordingly.
 
+---
 ### Flask Interface
 
-![Flask Interface](images/Captura_de_tela_chat_flask.png)
+![Flask Interface](https://github.com/g0dux/CHATCYBER-BETA-/blob/main/screenshot/Captura%20de%20tela%20chat%20flask.png)
 
-*(Example: place your `Captura_de_tela_chat_flask.png` inside `images/`.)*
-
+---
 ### Gradio Interface
 
-![Gradio Interface](images/Captura_de_tela_chat_gradio.png)
-
-*(Example: place your `Captura_de_tela_chat_gradio.png` inside `images/`.)*
+![Gradio Interface]()
 
 ---
 
