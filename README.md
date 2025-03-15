@@ -1,7 +1,4 @@
-Below is a complete and detailed README in English, made interactive and comprehensive based on your requirements:
-
----
-
+```markdown
 # Cyber Assistant v4.0
 
 [![Python Version](https://img.shields.io/badge/Python-3.8%2B-blue)](https://www.python.org/downloads/)  
@@ -24,12 +21,14 @@ Below is a complete and detailed README in English, made interactive and compreh
   - [Chat Mode](#chat-mode)
   - [Investigation Mode](#investigation-mode)
   - [Metadata Mode](#metadata-mode)
+- [Flask Interface](#flask-interface)
+- [Gradio Interface](#gradio-interface)
 - [Advanced Forensic Analysis](#advanced-forensic-analysis)
-- [Additional Features](#additional-features)
 - [Running on Google Colab](#running-on-google-colab)
 - [Contribution](#contribution)
 - [License](#license)
 - [Acknowledgments](#acknowledgments)
+- [Screenshots](#screenshots)
 
 ---
 
@@ -39,40 +38,42 @@ Below is a complete and detailed README in English, made interactive and compreh
   Engage in conversations with the assistant in multiple languages. Choose between **Technical** (detailed) or **Freeform** (creative) responses.
 
 - **Forensic Investigation:**  
-  Perform online investigations using target queries to retrieve data from various websites. Configure options such as number of sites, investigation focus, and inclusion of news or leaked data.
+  Perform online investigations using target queries to retrieve data from various websites. Configure options such as the number of sites, investigation focus, and inclusion of news or leaked data.
 
 - **Image Metadata Extraction:**  
-  Analyze EXIF metadata from an image URL—including automatic GPS coordinate conversion that links to Google Maps.
+  Analyze EXIF metadata from an image URL—including automatic GPS coordinate conversion that links directly to Google Maps.
 
 - **Neural Model Integration:**  
-  Powered by the Mistral-7B-Instruct model (via `llama_cpp`), the assistant generates context-aware responses and supports real-time language translation if needed.
+  Powered by the Mistral-7B-Instruct model (via `llama_cpp`), the assistant generates context-aware responses and supports real-time language translation if necessary.
 
 - **Local Caching:**  
-  An in-memory caching system optimizes performance by reducing redundant processing on repeated queries.
+  An in-memory caching system minimizes redundant processing for repeated queries.
 
-- **Interactive Web Interface:**  
-  A responsive and modern front end built with HTML, CSS, and JavaScript provides a smooth user experience with customizable configurations.
+- **Customizable Interfaces:**  
+  Both the Flask and Gradio interfaces are highly configurable with options to adjust appearance, response speed, and detail level.
 
 - **Performance Monitoring:**  
-  Prometheus integration tracks request counts and response latencies for robust performance insights.
+  Integrated with Prometheus to track request counts and response latencies.
 
 ---
 
 ## Project Architecture 🏗️
 
-Cyber Assistant v4.0 is built with a modular architecture:
+Cyber Assistant v4.0 is built using a modular architecture:
 
 - **Backend (Flask):**  
-  Handles user requests, interacts with the neural model, and manages forensic and metadata extraction functionalities.
+  Handles HTTP requests, integrates with the neural model, and manages forensic analysis and metadata extraction.
 
 - **Neural Model:**  
-  Loaded using the `llama_cpp` library; if not available locally, it is automatically downloaded from the Hugging Face Hub.
+  Loaded using the `llama_cpp` library; automatically downloads the model from the Hugging Face Hub if it is not found locally.
 
 - **Front-end:**  
-  An interactive web interface that allows users to select modes, adjust parameters (such as temperature and response speed), and customize the appearance.
+  Two distinct interfaces are provided:
+  - **Flask Interface:** A classic web interface built with HTML, CSS, and JavaScript.
+  - **Gradio Interface:** A modern, interactive UI powered by Gradio that offers a user-friendly experience with real-time feedback.
 
 - **Supporting Libraries:**  
-  Utilizes libraries such as `nltk`, `langdetect`, `duckduckgo_search`, and `Pillow` for text processing, image analysis, and data extraction.
+  Leverages libraries such as `nltk`, `langdetect`, `duckduckgo_search`, and `Pillow` for text processing, language detection, web search, and image analysis.
 
 ---
 
@@ -117,13 +118,13 @@ Cyber Assistant v4.0 is built with a modular architecture:
 
 4. **Initial NLTK Setup:**
 
-   On the first run, the project will download the required NLTK data (such as *punkt* and *vader_lexicon*).
+   On the first run, the project will automatically download necessary NLTK data (e.g., *punkt* and *vader_lexicon*).
 
 ---
 
 ## How to Run ▶️
 
-Start the application by executing:
+Start the application by running:
 
 ```bash
 python app.py
@@ -135,29 +136,32 @@ The Flask server will start at [http://0.0.0.0:5000/](http://0.0.0.0:5000/). Ope
 
 ## Operation Modes 🎮
 
-Cyber Assistant v4.0 offers three primary operation modes:
+Cyber Assistant v4.0 offers three primary modes:
 
 ### Chat Mode 💬
 
 - **Description:**  
-  Engage in a natural, conversational interaction with the AI assistant.
-- **Features:**  
-  - Choose your preferred language (Português, English, Español, Français, Deutsch).
-  - Select response style: **Technical** (detailed) or **Freeform** (creative).
+  Engage in natural, interactive conversation with the AI assistant.
+
+- **Configuration:**  
+  - Choose your preferred language and response style.
+  - Adjust the AI's temperature and response speed to balance creativity and performance.
 
 ---
 
 ### Investigation Mode 🔍
 
 - **Description:**  
-  Conduct online investigations based on a target query.
-- **Features:**  
+  Conduct online investigations based on target queries.
+
+- **Configuration:**  
   - Define the number of websites to search.
-  - Specify a focused investigation area.
-  - Enable options to include news and leaked data.
-  - Adjust response speed: choose between “Detailed” (more comprehensive but slower) or “Fast” (quicker with fewer details).
+  - Specify a focus for the investigation (e.g., phishing, malware).
+  - Enable options to include news or leaked data.
+  - Choose between "Detailed" (more comprehensive but slower) and "Fast" (quicker with fewer details) response modes.
+
 - **Output:**  
-  Produces a detailed report with links, forensic analysis, and actionable insights.
+  Generates a report with forensic analysis, relevant links, and actionable insights.
 
 ---
 
@@ -165,51 +169,65 @@ Cyber Assistant v4.0 offers three primary operation modes:
 
 - **Description:**  
   Extract and display image metadata from a provided URL.
+
 - **Features:**  
-  - Retrieve complete EXIF metadata.
-  - Automatically convert GPS coordinates into a clickable Google Maps link (if available).
+  - Retrieve complete EXIF data.
+  - Automatically convert GPS coordinates to a clickable Google Maps link.
+
+---
+
+## Flask Interface
+
+The Flask interface is the classic web interface powered by Flask. It handles HTTP requests and renders pages using server-side templates. Key aspects include:
+
+- **Endpoints:**  
+  Multiple endpoints handle chat, investigation, metadata extraction, email analysis, and more.
+  
+- **Performance Monitoring:**  
+  Integrated with Prometheus for tracking metrics.
+  
+- **Customization:**  
+  Uses HTML, CSS, and JavaScript for a responsive design with a configuration modal to adjust appearance settings.
+
+---
+
+## Gradio Interface
+
+The Gradio interface provides an interactive, modern user interface that runs alongside Flask. Key features include:
+
+- **Real-Time Interaction:**  
+  Users receive immediate feedback as they interact with the assistant.
+  
+- **Intuitive Controls:**  
+  Sliders and radio buttons allow users to configure parameters such as temperature, response speed, and more.
+  
+- **Seamless Integration:**  
+  The Gradio interface mirrors the functionalities available in the Flask interface, providing a user-friendly experience for both chat and investigation modes.
 
 ---
 
 ## Advanced Forensic Analysis 🕵️‍♂️
 
-Cyber Assistant v4.0 includes an advanced forensic analysis module that extracts and correlates critical data for digital investigations, such as:
+The advanced forensic analysis module extracts critical forensic data from the results, including:
 
 - **IP Addresses:** IPv4 and IPv6  
-- **Contact Information:** Emails and Phone Numbers  
-- **URLs & MAC Addresses**  
-- **Hashes:** MD5, SHA1, SHA256  
-- **Vulnerability IDs:** e.g., CVE identifiers
+- **Contact Information:** Emails and phone numbers  
+- **URLs, MAC Addresses, and Hashes:** MD5, SHA1, and SHA256  
+- **Vulnerability IDs:** Such as CVE identifiers
 
-These capabilities aid in identifying patterns and gathering digital evidence for cybersecurity and forensic investigations.
-
----
-
-## Additional Features 🚀
-
-- **Autocorrection:**  
-  The input text is automatically corrected for spelling and grammar to improve the coherence of responses.
-
-- **Speed vs. Detail Configuration:**  
-  Users can choose between a "Fast" mode (lower token count, less detailed, quicker responses) or a "Detailed" mode (higher token count, more comprehensive responses).
-
-- **Interactive Configuration:**  
-  The web interface includes a modal that lets users customize appearance settings (font sizes, colors, dimensions for chat and notes areas).
-
-- **Performance Monitoring:**  
-  Integrated with Prometheus to monitor key metrics such as request count and latency.
+This module aids in identifying patterns and gathering digital evidence for cybersecurity investigations.
 
 ---
 
 ## Running on Google Colab ☁️
 
-Cyber Assistant v4.0 is designed to work seamlessly on Google Colab. Follow these steps to run the project on Colab:
+Cyber Assistant v4.0 is designed to run seamlessly on Google Colab. Follow these steps to launch the project in Colab:
 
-1. **Open a New Notebook on Google Colab.**
+1. **Open a New Notebook in Google Colab.**
 
-2. **Clone the Repository and Set Up the Environment:**
+2. **Clone the Repository and Install Dependencies:**
 
-   Insert and execute the following cell:
+   Paste and run the following cell:
 
    ```python
    %cd /content
@@ -221,13 +239,13 @@ Cyber Assistant v4.0 is designed to work seamlessly on Google Colab. Follow thes
 
 3. **Access the Application:**
 
-   The application will start automatically. You can access the interactive interface via the URL provided by Gradio, or use the Flask endpoints as needed.
+   The application will start automatically. Use the URL provided by Gradio or access the Flask endpoints as required.
 
 ---
 
 ## Contribution 🤝
 
-Contributions are very welcome! To contribute:
+Contributions are highly welcome! To contribute:
 
 1. **Fork the Repository.**
 2. **Create a New Branch:**
@@ -250,25 +268,36 @@ Contributions are very welcome! To contribute:
 
 5. **Open a Pull Request** on GitHub with a detailed description of your changes.
 
-Your contributions help make Cyber Assistant even better!
-
 ---
 
 ## License 📄
 
-This project is licensed under the [MIT License](https://opensource.org/licenses/MIT). See the LICENSE file for more details.
+This project is licensed under the [MIT License](https://opensource.org/licenses/MIT). See the LICENSE file for details.
 
 ---
 
 ## Acknowledgments 🙏
 
-- Thanks to the developers and maintainers of Flask, nltk, llama_cpp, and all the other libraries that make this project possible.
+- Thanks to the developers and maintainers of Flask, nltk, llama_cpp, and all other libraries that make this project possible.
 - Special thanks to the open-source community for continuous support and contributions.
 
 ---
 
-Enjoy using **Cyber Assistant v4.0** – your interactive tool for intelligent chat, forensic investigation, and image metadata extraction. Happy exploring!
+## Screenshots 📸
+
+Below are areas reserved for screenshots of the application interfaces. Replace the image URLs with your own screenshots.
+
+### Flask Interface
+
+![Flask Interface](https://via.placeholder.com/800x450?text=Flask+Interface+Screenshot)
+
+### Gradio Interface
+
+![Gradio Interface](https://via.placeholder.com/800x450?text=Gradio+Interface+Screenshot)
 
 ---
 
-This README is designed to be detailed and interactive, providing all the necessary information for users to understand, install, and run the project locally or on Google Colab.
+Enjoy using **Cyber Assistant v4.0** – your interactive tool for intelligent chat, forensic investigation, and image metadata extraction. Happy exploring and investigating!
+```
+
+This README is written in a detailed and interactive manner, providing clear sections for the project's features, architecture, installation, operation modes, both interfaces, and even dedicated areas for screenshots. Simply update the placeholder image URLs with actual screenshots of your Flask and Gradio interfaces.
