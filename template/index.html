@@ -1,3 +1,4 @@
+<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
@@ -335,10 +336,187 @@
       transform: scale(1.05);
     }
   </style>
+  
   <!-- Estilo personalizado atualizado via configurações -->
   <style id="customStyles"></style>
+  
+  <!-- Estilos extras de interatividade e animação -->
+  <style id="extraAnimations">
+    /* Particle background canvas */
+    #particleCanvas {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: -2;
+    }
+    /* Animação dinâmica de fundo */
+    @keyframes backgroundShift {
+      0% { background: radial-gradient(circle, #0f0f0f, #1c1c1c); }
+      50% { background: radial-gradient(circle, #1c1c1c, #0f0f0f); }
+      100% { background: radial-gradient(circle, #0f0f0f, #1c1c1c); }
+    }
+    body {
+      animation: backgroundShift 30s infinite alternate;
+    }
+    /* Efeito de ripple para botões */
+    .button-ripple {
+      position: relative;
+      overflow: hidden;
+    }
+    .button-ripple::after {
+      content: "";
+      position: absolute;
+      background: rgba(255,255,255,0.4);
+      border-radius: 50%;
+      transform: scale(0);
+      animation: rippleAnimation 0.6s linear;
+      pointer-events: none;
+    }
+    @keyframes rippleAnimation {
+      to {
+        transform: scale(4);
+        opacity: 0;
+      }
+    }
+    /* Animação de pulsar ao hover nas bolhas */
+    .message.user .bubble:hover, .message.ai .bubble:hover {
+      animation: pulse 1s infinite;
+    }
+    @keyframes pulse {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.05); }
+      100% { transform: scale(1); }
+    }
+    /* Animação de tremor (shake) ao clicar nas mensagens */
+    @keyframes shake {
+      0% { transform: translate(0); }
+      25% { transform: translate(5px, 0); }
+      50% { transform: translate(-5px, 0); }
+      75% { transform: translate(5px, 0); }
+      100% { transform: translate(0); }
+    }
+    .message:hover {
+      cursor: pointer;
+    }
+    /* Estilo para Toast Notification */
+    #toast {
+      position: fixed;
+      bottom: 30px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,0.8);
+      color: #fff;
+      padding: 12px 24px;
+      border-radius: 5px;
+      opacity: 0;
+      transition: opacity 0.5s ease;
+      z-index: 1100;
+    }
+    #toast.show {
+      opacity: 1;
+    }
+    /* Estilo para Clear Chat Confirmation Modal */
+    #clearChatModal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.85);
+      justify-content: center;
+      align-items: center;
+      z-index: 1200;
+      animation: fadeInModal 0.5s ease;
+    }
+    #clearChatModal .modal-content {
+      background: #121212;
+      padding: 25px;
+      border-radius: 8px;
+      max-width: 400px;
+      width: 90%;
+      color: #e0e0e0;
+      box-shadow: 0 6px 18px rgba(0,0,0,0.7);
+      animation: slideDown 0.5s ease-out;
+      text-align: center;
+    }
+    #clearChatModal button {
+      padding: 10px 16px;
+      border: none;
+      background-color: #00aaff;
+      color: #fff;
+      border-radius: 4px;
+      cursor: pointer;
+      margin: 10px;
+      transition: background 0.3s, transform 0.2s;
+    }
+    #clearChatModal button:hover {
+      background-color: #0088cc;
+      transform: scale(1.05);
+    }
+    /* Fullscreen chat window */
+    .chat-window.fullscreen {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      z-index: 1100;
+      border-radius: 0;
+      padding: 40px;
+      transition: all 0.3s ease;
+    }
+    /* Draggable sidebar handle */
+    #sidebarHandle {
+      width: 100%;
+      height: 20px;
+      background: linear-gradient(90deg, #00aaff, #00ffe0);
+      cursor: move;
+      border-top-left-radius: 10px;
+      border-top-right-radius: 10px;
+      margin-bottom: 10px;
+      text-align: center;
+      color: #0a0a0a;
+      font-weight: bold;
+    }
+    /* Estilo para o coelhinho interativo */
+    .rabbit {
+      position: absolute;
+      font-size: 40px;
+      cursor: grab;
+      user-select: none;
+      transition: transform 0.2s, left 0.2s, top 0.2s;
+      z-index: 1150;
+    }
+    .rabbit.dragging {
+      cursor: grabbing;
+      transform: scale(1.1);
+    }
+    @keyframes wiggle {
+      0% { transform: rotate(0deg); }
+      25% { transform: rotate(5deg); }
+      50% { transform: rotate(0deg); }
+      75% { transform: rotate(-5deg); }
+      100% { transform: rotate(0deg); }
+    }
+    .rabbit:hover {
+      animation: wiggle 0.5s;
+    }
+    /* Estilo para a cenoura */
+    .carrot {
+      position: absolute;
+      font-size: 40px;
+      user-select: none;
+      z-index: 1140;
+    }
+  </style>
 </head>
 <body>
+  <!-- Canvas para partículas animadas -->
+  <canvas id="particleCanvas"></canvas>
+  
   <header>Cyber Assistant v4.0</header>
   <div class="nav-tabs">
     <button class="tab-button active" data-tab="chatTab">Chat</button>
@@ -404,8 +582,9 @@
         <button id="clearChat">Limpar Chat</button>
       </div>
     </div>
-    <!-- Sidebar para anotações -->
-    <div class="sidebar">
+    <!-- Sidebar para anotações com handle para arrastar -->
+    <div class="sidebar" id="sidebar">
+      <div id="sidebarHandle">Arraste aqui</div>
       <h3>Anotações</h3>
       <textarea id="notesArea" placeholder="Anote informações importantes aqui..."></textarea>
     </div>
@@ -413,7 +592,7 @@
   <footer>© 2025 Cyber Assistant</footer>
   
   <!-- Botão flutuante para abrir as configurações -->
-  <button id="configToggleButton">⚙️</button>
+  <button id="configToggleButton" class="button-ripple">⚙️</button>
   
   <!-- Modal de configurações -->
   <div id="configModal">
@@ -473,38 +652,74 @@
     </div>
   </div>
   
+  <!-- Modal de confirmação para limpar o chat -->
+  <div id="clearChatModal">
+    <div class="modal-content">
+      <h3>Tem certeza que deseja limpar o chat?</h3>
+      <button id="confirmClear">Sim</button>
+      <button id="cancelClear">Não</button>
+    </div>
+  </div>
+  
+  <!-- Toast Notification -->
+  <div id="toast"></div>
+  
   <script>
     // Alterna exibição das opções de investigação conforme o modo selecionado
     document.getElementById("mode").addEventListener("change", function() {
       const mode = this.value;
       const invOptions = document.getElementById("investigationOptions");
       invOptions.style.display = mode === "Investigação" ? "flex" : "none";
+      showToast("Modo alterado para: " + mode);
+      // Animação extra na janela de chat
+      const chatWindow = document.getElementById("chatWindow");
+      chatWindow.style.boxShadow = "0 0 20px #00ffe0";
+      setTimeout(() => chatWindow.style.boxShadow = "0 6px 20px rgba(0,0,0,0.7)", 500);
     });
     
-    // Função para adicionar mensagem à janela de chat
+    // Função para adicionar mensagem à janela de chat com interatividade
     function appendMessage(windowId, sender, message) {
       const windowElement = document.getElementById(windowId);
       const messageDiv = document.createElement('div');
-      // Correção na interpolação da classe
       messageDiv.className = `message ${sender}`;
       const bubbleDiv = document.createElement('div');
       bubbleDiv.className = 'bubble';
       bubbleDiv.innerHTML = message;
       messageDiv.appendChild(bubbleDiv);
+      // Efeito de shake ao clicar na mensagem
+      messageDiv.addEventListener('click', () => {
+        messageDiv.style.animation = 'shake 0.5s';
+        setTimeout(() => messageDiv.style.animation = '', 500);
+      });
       windowElement.appendChild(messageDiv);
       windowElement.scrollTop = windowElement.scrollHeight;
     }
     
     // Função para adicionar mensagem de tempo de resposta
     function appendTimer(time) {
-      // Correção para envolver o HTML em template literal
       appendMessage("chatWindow", "ai", `<em>Tempo de resposta: ${time.toFixed(2)} segundos</em>`);
     }
     
-    // Função para limpar o chat
-    document.getElementById("clearChat").addEventListener("click", function() {
-      document.getElementById("chatWindow").innerHTML = "";
-    });
+    // Função para exibir o Toast Notification
+    function showToast(message) {
+      const toast = document.getElementById("toast");
+      toast.innerText = message;
+      toast.classList.add("show");
+      setTimeout(() => {
+        toast.classList.remove("show");
+      }, 3000);
+    }
+    
+    // Função para limpar o chat com animação de fade-out
+    function clearChat() {
+      const chatWindow = document.getElementById("chatWindow");
+      chatWindow.style.transition = "opacity 0.5s";
+      chatWindow.style.opacity = "0";
+      setTimeout(() => {
+        chatWindow.innerHTML = "";
+        chatWindow.style.opacity = "1";
+      }, 500);
+    }
     
     // Exibe o spinner de carregamento
     function showSpinner() {
@@ -540,16 +755,12 @@
       const streaming = document.getElementById("streaming").checked;
       showSpinner();
       
-      // Registra o tempo de início
       const startTime = Date.now();
-      
-      // Define a URL com parâmetro 'stream' se streaming estiver ativado
       const url = streaming ? '/ask?stream=true' : '/ask';
       
       fetch(url, { method: 'POST', body: formData })
       .then(response => {
         if (streaming) {
-          // Cria uma única mensagem para a resposta da IA e atualiza o conteúdo aos poucos
           const chatWindow = document.getElementById("chatWindow");
           const aiMessageDiv = document.createElement('div');
           aiMessageDiv.className = 'message ai';
@@ -593,7 +804,7 @@
       });
     });
     
-    // Configurações: exibição do modal
+    // Configurações: exibição do modal de configurações
     const configModal = document.getElementById("configModal");
     const configToggleButton = document.getElementById("configToggleButton");
     
@@ -607,7 +818,6 @@
     });
     
     document.getElementById("saveConfig").addEventListener("click", () => {
-      // Obter valores do formulário de configurações
       const inputFontSize = document.getElementById("inputFontSize").value;
       const inputWidth = document.getElementById("inputWidth").value;
       const chatWindowHeight = document.getElementById("chatWindowHeight").value;
@@ -620,7 +830,6 @@
       const userBubbleColor = document.getElementById("userBubbleColor").value;
       const aiBubbleColor = document.getElementById("aiBubbleColor").value;
       
-      // Atualizar estilos personalizados via elemento de estilo usando template literal
       const customStyles = document.getElementById("customStyles");
       customStyles.innerHTML = `
         #chatInput { font-size: ${inputFontSize}px; width: ${inputWidth}px; }
@@ -630,10 +839,215 @@
         .message.ai .bubble { background-color: ${aiBubbleColor}; }
         body { background-color: ${bodyBgColor}; }
       `;
-      
-      // Fechar o modal de configurações
       configModal.style.display = "none";
+      showToast("Configurações salvas!");
     });
+    
+    // Modal de confirmação para limpar o chat
+    const clearChatModal = document.getElementById("clearChatModal");
+    document.getElementById("clearChat").addEventListener("click", () => {
+      clearChatModal.style.display = "flex";
+    });
+    document.getElementById("cancelClear").addEventListener("click", () => {
+      clearChatModal.style.display = "none";
+    });
+    document.getElementById("confirmClear").addEventListener("click", () => {
+      clearChat();
+      clearChatModal.style.display = "none";
+      showToast("Chat limpo!");
+    });
+    
+    // Ativa efeito ripple em todos os botões
+    document.querySelectorAll('button').forEach(btn => {
+      btn.classList.add('button-ripple');
+    });
+    
+    // Função para tornar a sidebar arrastável
+    (function() {
+      const sidebar = document.getElementById("sidebar");
+      const handle = document.getElementById("sidebarHandle");
+      let isDragging = false, offsetX = 0, offsetY = 0;
+      
+      handle.addEventListener("mousedown", (e) => {
+        isDragging = true;
+        sidebar.style.position = "absolute";
+        offsetX = e.clientX - sidebar.getBoundingClientRect().left;
+        offsetY = e.clientY - sidebar.getBoundingClientRect().top;
+      });
+      
+      document.addEventListener("mousemove", (e) => {
+        if (isDragging) {
+          sidebar.style.left = (e.clientX - offsetX) + "px";
+          sidebar.style.top = (e.clientY - offsetY) + "px";
+        }
+      });
+      
+      document.addEventListener("mouseup", () => {
+        isDragging = false;
+      });
+    })();
+    
+    // Duplo clique na janela de chat para alternar para modo full-screen
+    document.getElementById("chatWindow").addEventListener("dblclick", function() {
+      this.classList.toggle("fullscreen");
+      showToast(this.classList.contains("fullscreen") ? "Chat em tela cheia" : "Chat normalizado");
+    });
+    
+    // Script para partículas animadas no fundo
+    (function(){
+      const canvas = document.getElementById('particleCanvas');
+      const ctx = canvas.getContext('2d');
+      let particles = [];
+      const particleCount = 100;
+      
+      function resizeCanvas() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+      }
+      
+      window.addEventListener('resize', resizeCanvas);
+      resizeCanvas();
+      
+      class Particle {
+        constructor(){
+          this.x = Math.random() * canvas.width;
+          this.y = Math.random() * canvas.height;
+          this.radius = Math.random() * 2 + 1;
+          this.speedX = (Math.random() - 0.5) * 1;
+          this.speedY = (Math.random() - 0.5) * 1;
+          this.alpha = Math.random() * 0.5 + 0.5;
+        }
+        
+        update(){
+          this.x += this.speedX;
+          this.y += this.speedY;
+          if(this.x < 0 || this.x > canvas.width) this.speedX = -this.speedX;
+          if(this.y < 0 || this.y > canvas.height) this.speedY = -this.speedY;
+        }
+        
+        draw(){
+          ctx.beginPath();
+          ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(255,255,255,${this.alpha})`;
+          ctx.fill();
+        }
+      }
+      
+      function initParticles(){
+        particles = [];
+        for(let i = 0; i < particleCount; i++){
+          particles.push(new Particle());
+        }
+      }
+      
+      function animateParticles(){
+        ctx.clearRect(0,0,canvas.width, canvas.height);
+        particles.forEach(p => {
+          p.update();
+          p.draw();
+        });
+        requestAnimationFrame(animateParticles);
+      }
+      
+      initParticles();
+      animateParticles();
+    })();
+    
+    /* -- NOVA INTERATIVIDADE: COELHINHO COM VIDA PRÓPRIA -- */
+    (function() {
+      // Cria UM coelhinho e posiciona aleatoriamente
+      const rabbit = document.createElement("div");
+      rabbit.className = "rabbit";
+      rabbit.innerText = "🐰";
+      rabbit.style.left = Math.random() * (window.innerWidth - 50) + "px";
+      rabbit.style.top = Math.random() * (window.innerHeight - 50) + "px";
+      document.body.appendChild(rabbit);
+      
+      let carrot = null; // referência à cenoura
+      
+      // Função para criar uma cenoura em local aleatório
+      function spawnCarrot() {
+        if (carrot) {
+          carrot.remove();
+        }
+        carrot = document.createElement("div");
+        carrot.className = "carrot";
+        carrot.innerText = "🥕";
+        carrot.style.left = Math.random() * (window.innerWidth - 50) + "px";
+        carrot.style.top = Math.random() * (window.innerHeight - 50) + "px";
+        document.body.appendChild(carrot);
+      }
+      
+      // Função para mover o coelhinho em direção à cenoura
+      function moveRabbitToCarrot() {
+        if (!carrot) return;
+        const rabbitRect = rabbit.getBoundingClientRect();
+        const carrotRect = carrot.getBoundingClientRect();
+        const rx = rabbitRect.left;
+        const ry = rabbitRect.top;
+        const cx = carrotRect.left;
+        const cy = carrotRect.top;
+        const dx = cx - rx;
+        const dy = cy - ry;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        if (distance < 10) {
+          // Coelhinho alcançou a cenoura; "comer" (remover) a cenoura
+          carrot.remove();
+          carrot = null;
+          showToast("O coelhinho comeu a cenoura!");
+          return;
+        }
+        // Move o coelhinho em direção à cenoura (velocidade de 2px por frame)
+        const speed = 2;
+        rabbit.style.left = (rx + (dx / distance) * speed) + "px";
+        rabbit.style.top = (ry + (dy / distance) * speed) + "px";
+      }
+      
+      // Função para fazer o coelhinho vaguear aleatoriamente se não houver cenoura
+      function wanderRabbit() {
+        if (carrot) return; // se a cenoura existe, o coelhinho vai até ela
+        const rect = rabbit.getBoundingClientRect();
+        let newX = rect.left + (Math.random() - 0.5) * 10;
+        let newY = rect.top + (Math.random() - 0.5) * 10;
+        newX = Math.max(0, Math.min(window.innerWidth - 50, newX));
+        newY = Math.max(0, Math.min(window.innerHeight - 50, newY));
+        rabbit.style.left = newX + "px";
+        rabbit.style.top = newY + "px";
+      }
+      
+      // Intervalo para spawn de cenoura a cada 10 minutos (600000 ms)
+      setInterval(spawnCarrot, 600000);
+      // Para testes, você pode reduzir esse tempo.
+      
+      // Loop de animação para o coelhinho
+      function animateRabbit() {
+        if (carrot) {
+          moveRabbitToCarrot();
+        } else {
+          wanderRabbit();
+        }
+        requestAnimationFrame(animateRabbit);
+      }
+      animateRabbit();
+      
+      // Permite arrastar o coelhinho manualmente
+      rabbit.addEventListener("mousedown", function(e) {
+        rabbit.classList.add("dragging");
+        const offsetX = e.clientX - rabbit.getBoundingClientRect().left;
+        const offsetY = e.clientY - rabbit.getBoundingClientRect().top;
+        function onMouseMove(e) {
+          rabbit.style.left = (e.clientX - offsetX) + "px";
+          rabbit.style.top = (e.clientY - offsetY) + "px";
+        }
+        function onMouseUp() {
+          rabbit.classList.remove("dragging");
+          document.removeEventListener("mousemove", onMouseMove);
+          document.removeEventListener("mouseup", onMouseUp);
+        }
+        document.addEventListener("mousemove", onMouseMove);
+        document.addEventListener("mouseup", onMouseUp);
+      });
+    })();
   </script>
 </body>
 </html>
