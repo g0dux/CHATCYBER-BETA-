@@ -283,13 +283,13 @@ Below are areas for adding screenshots. Make sure to copy your images into an `i
 
 ### Flask Interface
 
-![Flask Interface](images/Captura_de_tela_chat_flask.png)
+![Flask Interface](screenshot/Captura_de_tela_chat_flask.png)
 
 *(Example: place your `Captura_de_tela_chat_flask.png` inside `images/`.)*
 
 ### Gradio Interface
 
-![Gradio Interface](images/Captura_de_tela_chat_gradio.png)
+![Gradio Interface](screenshot/Captura_de_tela_chat_gradio.png)
 
 *(Example: place your `Captura_de_tela_chat_gradio.png` inside `images/`.)*
 
