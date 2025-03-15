@@ -1,3 +1,4 @@
+
 Cyber Assistant v4.0
 
 [![Python Version](https://img.shields.io/badge/Python-3.8%2B-blue)](https://www.python.org/downloads/)  
