@@ -1,5 +1,4 @@
-
-Cyber Assistant v4.0
+## Cyber Assistant v4.0
 
 [![Python Version](https://img.shields.io/badge/Python-3.8%2B-blue)](https://www.python.org/downloads/)  
 [![Flask](https://img.shields.io/badge/Flask-v2.0+-blue)](https://palletsprojects.com/p/flask/)  
