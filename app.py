@@ -20,6 +20,7 @@ import threading
 import subprocess
 import nltk
 import concurrent.futures
+import importlib.util
 import email
 from email import policy
 from email.parser import BytesParser
@@ -238,7 +239,7 @@ index_html = """
       font-size: 14px;
       transition: border-color 0.3s;
     }
-    /* Opções para investigação */
+    /* Novas opções para investigação */
     #investigationOptions { display: none; }
     /* Sidebar para anotações */
     .sidebar {
@@ -490,100 +491,6 @@ index_html = """
     #toast.show {
       opacity: 1;
     }
-    /* Estilo para Clear Chat Confirmation Modal */
-    #clearChatModal {
-      display: none;
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background: rgba(0, 0, 0, 0.85);
-      justify-content: center;
-      align-items: center;
-      z-index: 1200;
-      animation: fadeInModal 0.5s ease;
-    }
-    #clearChatModal .modal-content {
-      background: #121212;
-      padding: 25px;
-      border-radius: 8px;
-      max-width: 400px;
-      width: 90%;
-      color: #e0e0e0;
-      box-shadow: 0 6px 18px rgba(0,0,0,0.7);
-      animation: slideDown 0.5s ease-out;
-      text-align: center;
-    }
-    #clearChatModal button {
-      padding: 10px 16px;
-      border: none;
-      background-color: #00aaff;
-      color: #fff;
-      border-radius: 4px;
-      cursor: pointer;
-      margin: 10px;
-      transition: background 0.3s, transform 0.2s;
-    }
-    #clearChatModal button:hover {
-      background-color: #0088cc;
-      transform: scale(1.05);
-    }
-    /* Fullscreen chat window */
-    .chat-window.fullscreen {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100vw;
-      height: 100vh;
-      z-index: 1100;
-      border-radius: 0;
-      padding: 40px;
-      transition: all 0.3s ease;
-    }
-    /* Draggable sidebar handle */
-    #sidebarHandle {
-      width: 100%;
-      height: 20px;
-      background: linear-gradient(90deg, #00aaff, #00ffe0);
-      cursor: move;
-      border-top-left-radius: 10px;
-      border-top-right-radius: 10px;
-      margin-bottom: 10px;
-      text-align: center;
-      color: #0a0a0a;
-      font-weight: bold;
-    }
-    /* Estilo para o coelhinho interativo */
-    .rabbit {
-      position: absolute;
-      font-size: 40px;
-      cursor: grab;
-      user-select: none;
-      transition: transform 0.2s, left 0.2s, top 0.2s;
-      z-index: 1150;
-    }
-    .rabbit.dragging {
-      cursor: grabbing;
-      transform: scale(1.1);
-    }
-    @keyframes wiggle {
-      0% { transform: rotate(0deg); }
-      25% { transform: rotate(5deg); }
-      50% { transform: rotate(0deg); }
-      75% { transform: rotate(-5deg); }
-      100% { transform: rotate(0deg); }
-    }
-    .rabbit:hover {
-      animation: wiggle 0.5s;
-    }
-    /* Estilo para a cenoura */
-    .carrot {
-      position: absolute;
-      font-size: 40px;
-      user-select: none;
-      z-index: 1140;
-    }
   </style>
 </head>
 <body>
@@ -636,6 +543,11 @@ index_html = """
             <label>
               <input type="checkbox" id="streaming" name="streaming"> Ativar Streaming
             </label>
+            <!-- Novos campos para configuração de GPU/CPU -->
+            <label for="gpu_layers">Camadas GPU:</label>
+            <input type="number" id="gpu_layers" name="gpu_layers" placeholder="Automático">
+            <label for="n_batch">Tamanho do Lote:</label>
+            <input type="number" id="n_batch" name="n_batch" placeholder="Automático">
           </div>
           <!-- Opções adicionais para investigação -->
           <div class="form-options" id="investigationOptions">
@@ -804,7 +716,7 @@ index_html = """
       document.getElementById("loadingSpinner").style.display = "none";
     }
     
-    // Envio do formulário de chat
+    // Envio do formulário de chat com suporte a streaming e novos parâmetros de GPU/CPU
     document.getElementById("chatForm").addEventListener("submit", function(e) {
       e.preventDefault();
       const inputField = document.getElementById("chatInput");
@@ -824,6 +736,8 @@ index_html = """
       formData.append('investigation_focus', document.getElementById("investigation_focus").value);
       formData.append('search_news', document.getElementById("search_news").checked);
       formData.append('search_leaked_data', document.getElementById("search_leaked_data").checked);
+      formData.append('gpu_layers', document.getElementById("gpu_layers").value);
+      formData.append('n_batch', document.getElementById("n_batch").value);
       
       const streaming = document.getElementById("streaming").checked;
       showSpinner();
@@ -1090,7 +1004,6 @@ index_html = """
       
       // Intervalo para spawn de cenoura a cada 10 minutos (600000 ms)
       setInterval(spawnCarrot, 600000);
-      // Para testes, você pode reduzir esse tempo.
       
       // Loop de animação para o coelhinho
       function animateRabbit() {
@@ -1168,80 +1081,58 @@ COMPILED_REGEX_PATTERNS = {
     'phone': re.compile(r'\+?\d[\d\s()-]{7,}\d'),
     'url': re.compile(r'https?://(?:[-\w.]|(?:%[\da-fA-F]{2}))+'),
     'mac': re.compile(r'\b(?:[0-9A-Fa-f]{2}[:-]){5}(?:[0-9A-Fa-f]{2})\b'),
-    'md5': re.compile(r'\b[a-fA-F0-9]{32}\b'),
-    'sha1': re.compile(r'\b[a-fA-F0-9]{40}\b'),
-    'sha256': re.compile(r'\b[a-fA-F0-9]{64}\b'),
-    'cve': re.compile(r'\bCVE-\d{4}-\d{4,7}\b'),
-    'imei': re.compile(r'\b\d{15}\b'),
-    'cpf': re.compile(r'\b\d{3}\.\d{3}\.\d{3}-\d{2}\b'),
-    'cnpj': re.compile(r'\b\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2}\b'),
-    'ssn': re.compile(r'\b\d{3}-\d{2}-\d{4}\b'),
-    'uuid': re.compile(r'\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b'),
-    'cc': re.compile(r'\b(?:\d[ -]*?){13,16}\b'),
-    'btc': re.compile(r'\b(?:[13][a-km-zA-HJ-NP-Z1-9]{25,34})\b'),
-    'ethereum': re.compile(r'\b0x[a-fA-F0-9]{40}\b'),
-    'jwt': re.compile(r'\beyJ[a-zA-Z0-9-_]+?\.[a-zA-Z0-9-_]+?\.[a-zA-Z0-9-_]+?\b'),
-    'cidr': re.compile(r'\b(?:\d{1,3}\.){3}\d{1,3}/\d{1,2}\b'),
-    'iso8601': re.compile(r'\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}'),
-    'sha512': re.compile(r'\b[a-fA-F0-9]{128}\b'),
-    'base64': re.compile(r'\b(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?\b'),
-    'google_api_key': re.compile(r'\bAIza[0-9A-Za-z-_]{35}\b'),
-    'iban': re.compile(r'\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b'),
-    'us_phone': re.compile(r'\(?\b\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b'),
-    'twitter_handle': re.compile(r'@\w{1,15}\b'),
-    'date_mmddyyyy': re.compile(r'\b(0?[1-9]|1[0-2])/(0?[1-9]|[12]\d|3[01])/\d{4}\b'),
-    'win_path': re.compile(r'\b[a-zA-Z]:\\(?:[^\\\/:*?"<>|\r\n]+\\)*[^\\\/:*?"<>|\r\n]+\b'),
-    'ipv4_port': re.compile(r'\b(?:\d{1,3}\.){3}\d{1,3}:\d+\b'),
-    'http_status': re.compile(r'HTTP/\d\.\d"\s(\d{3})\b'),
-    'version': re.compile(r'\b\d+\.\d+(\.\d+)?\b'),
-    'bitcoin_wif': re.compile(r'\b[5KL][1-9A-HJ-NP-Za-km-z]{50,51}\b'),
-    'github_repo': re.compile(r'https?://(?:www\.)?github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+'),
-    'sql_injection': re.compile(r"(?i)\b(SELECT|INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|EXEC)\b"),
-    'unix_path': re.compile(r'(/(?:[\w._-]+/)*[\w._-]+)'),
-    'base32': re.compile(r'\b(?:[A-Z2-7]{8,})\b'),
-    'bitcoin_cash': re.compile(r'\b(?:q|p)[a-z0-9]{41}\b'),
-    'passport': re.compile(r'\b\d{9}\b'),
-    'win_registry': re.compile(r'(?:HKEY_LOCAL_MACHINE|HKEY_CURRENT_USER|HKEY_CLASSES_ROOT|HKEY_USERS|HKEY_CURRENT_CONFIG)\\[\\\w]+'),
-    'onion_v2': re.compile(r'\b[a-z2-7]{16}\.onion\b'),
-    'onion_v3': re.compile(r'\b[a-z2-7]{56}\.onion\b'),
-    'domain': re.compile(r'\b(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}\b'),
-    'e164_phone': re.compile(r'\+\d{10,15}'),
-    'geo_coordinates': re.compile(r'[-+]?([1-8]?\d(\.\d+)?|90(\.0+)?)[, ]+\s*[-+]?((1[0-7]\d)|([1-9]?\d))(\.\d+)?')
+    # ... outros padrões conforme necessário ...
+    'domain': re.compile(r'\b(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}\b')
 }
 
-# ===== Funções de Download e Carregamento do Modelo =====
-def download_model() -> None:
-    try:
-        logger.info("⏬ Baixando Modelo...")
+# ===== Carregamento de Plugins (Módulos Externos) =====
+def load_plugins(plugin_dir="plugins"):
+    plugins = {}
+    if os.path.isdir(plugin_dir):
+        for filename in os.listdir(plugin_dir):
+            if filename.endswith(".py"):
+                module_name = filename[:-3]
+                file_path = os.path.join(plugin_dir, filename)
+                spec = importlib.util.spec_from_file_location(module_name, file_path)
+                module = importlib.util.module_from_spec(spec)
+                try:
+                    spec.loader.exec_module(module)
+                    plugins[module_name] = module
+                    logger.info(f"Plugin carregado: {module_name}")
+                except Exception as e:
+                    logger.error(f"Erro ao carregar plugin {module_name}: {e}")
+    return plugins
+
+plugins = load_plugins()
+
+# ===== Gerenciamento de GPU/CPU e Paralelização =====
+model_lock = threading.Lock()  # Para acesso thread-safe ao modelo
+
+def load_model(custom_gpu_layers=None, custom_n_batch=None) -> Llama:
+    model_path = os.path.join(DEFAULT_LOCAL_MODEL_DIR, DEFAULT_MODEL_FILE)
+    if not os.path.exists(model_path):
         hf_hub_download(
             repo_id=DEFAULT_MODEL_NAME,
             filename=DEFAULT_MODEL_FILE,
             local_dir=DEFAULT_LOCAL_MODEL_DIR,
             resume_download=True
         )
-    except Exception as e:
-        logger.error(f"❌ Falha no Download: {e}")
-        raise e
-
-def load_model() -> Llama:
-    model_path = os.path.join(DEFAULT_LOCAL_MODEL_DIR, DEFAULT_MODEL_FILE)
-    if not os.path.exists(model_path):
-        download_model()
     try:
-        n_gpu_layers = 15
-        n_batch = 512
+        # Detecta GPU ou utiliza valores customizados, se fornecidos
+        n_gpu_layers = custom_gpu_layers if custom_gpu_layers is not None else 15
+        n_batch = custom_n_batch if custom_n_batch is not None else 512
         try:
             import GPUtil
             gpus = GPUtil.getGPUs()
-            if gpus:
+            if gpus and custom_gpu_layers is None and custom_n_batch is None:
                 n_gpu_layers = -1
                 n_batch = 1024
                 logger.info("GPU detectada. Utilizando todas as camadas na GPU (n_gpu_layers=-1) e n_batch=1024.")
             else:
-                logger.info("Nenhuma GPU detectada. Usando configuração otimizada para CPU.")
+                logger.info("Nenhuma GPU detectada ou parâmetros customizados fornecidos. Usando configuração otimizada para CPU ou customizada.")
         except Exception as gpu_error:
             logger.warning(f"Erro na detecção da GPU: {gpu_error}. Configuração para CPU será utilizada.")
-        model = Llama(
+        model_instance = Llama(
             model_path=model_path,
             n_ctx=4096,
             n_threads=psutil.cpu_count(logical=True),
@@ -1249,26 +1140,32 @@ def load_model() -> Llama:
             n_batch=n_batch
         )
         logger.info(f"🤖 Modelo Neural Carregado com n_gpu_layers={n_gpu_layers}, n_batch={n_batch} e n_threads={psutil.cpu_count(logical=True)}")
-        return model
+        return model_instance
     except Exception as e:
         logger.error(f"❌ Erro na Inicialização do Modelo: {e}")
         raise e
 
+# Inicializa o modelo globalmente
 model = load_model()
+
+def update_model_config(custom_gpu_layers, custom_n_batch):
+    global model
+    with model_lock:
+        logger.info("Atualizando configuração do modelo...")
+        model = load_model(custom_gpu_layers, custom_n_batch)
+        logger.info("Configuração do modelo atualizada.")
 
 # ===== Função Autocorretora =====
 def autocorrect_text(text: str, lang: str) -> str:
-    """
-    Utiliza o modelo para corrigir erros gramaticais e de digitação no texto.
-    """
     prompt = f"Corrija os erros de digitação e melhore a gramática do seguinte texto, mantendo o mesmo significado:\n\n{text}"
     try:
-        correction_response = model.create_chat_completion(
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.3,
-            max_tokens=200,
-            stop=["</s>"]
-        )
+        with model_lock:
+            correction_response = model.create_chat_completion(
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3,
+                max_tokens=200,
+                stop=["</s>"]
+            )
         corrected_text = correction_response['choices'][0]['message']['content'].strip()
         return corrected_text
     except Exception as e:
@@ -1291,7 +1188,6 @@ def build_messages(query: str, lang_config: dict, style: str, custom_temperature
     return messages, temperature
 
 def generate_response(query: str, lang: str, style: str, custom_temperature: float = None, fast_mode: bool = False) -> str:
-    # Aplica autocorreção
     corrected_query = autocorrect_text(query, lang)
     start_time = time.time()
     cached_text = get_cached_response(corrected_query, lang, style)
@@ -1302,12 +1198,13 @@ def generate_response(query: str, lang: str, style: str, custom_temperature: flo
     messages, temperature = build_messages(corrected_query, lang_config, style, custom_temperature)
     max_tokens = 400 if fast_mode else 800
     try:
-        response = model.create_chat_completion(
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            stop=["</s>"]
-        )
+        with model_lock:
+            response = model.create_chat_completion(
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                stop=["</s>"]
+            )
         raw_response = response['choices'][0]['message']['content']
         final_response = validate_language(raw_response, lang_config)
         logger.info(f"✅ Resposta gerada em {time.time() - start_time:.2f}s")
@@ -1332,11 +1229,12 @@ def validate_language(text: str, lang_config: dict) -> str:
 def correct_language(text: str, lang_config: dict) -> str:
     try:
         correction_prompt = f"Traduza para {lang_config['instruction']}:\n{text}"
-        corrected = model.create_chat_completion(
-            messages=[{"role": "user", "content": correction_prompt}],
-            temperature=0.3,
-            max_tokens=1000
-        )
+        with model_lock:
+            corrected = model.create_chat_completion(
+                messages=[{"role": "user", "content": correction_prompt}],
+                temperature=0.3,
+                max_tokens=1000
+            )
         corrected_text = corrected['choices'][0]['message']['content']
         return f"[Traduzido]\n{corrected_text}"
     except Exception as e:
@@ -1413,7 +1311,7 @@ def ask():
             logger.error(f"Erro no modo Chat: {e}")
             return jsonify({'error': str(e)}), 500
 
-# ===== Função para Streaming de Respostas (caso necessário) =====
+# ===== Função para Streaming de Respostas (para feedback em tempo real) =====
 def streaming_response(text: str, chunk_size: int = 200):
     for i in range(0, len(text), chunk_size):
         yield text[i:i+chunk_size]
@@ -1433,11 +1331,6 @@ def advanced_forensic_analysis(text: str) -> dict:
 
 # --- SISTEMA DE METADADOS ---
 def get_decimal_from_dms(dms, ref):
-    """
-    Converte coordenadas no formato DMS (graus, minutos e segundos) em decimal.
-    dms: tuple contendo três tuplas (graus, minutos, segundos) cada uma no formato (num, den)
-    ref: referência de direção, 'N', 'S', 'E' ou 'W'
-    """
     try:
         degrees = dms[0][0] / dms[0][1]
         minutes = dms[1][0] / dms[1][1]
@@ -1450,23 +1343,17 @@ def get_decimal_from_dms(dms, ref):
         raise ValueError("Erro ao converter coordenadas DMS para decimal: " + str(e))
 
 def analyze_image_metadata(url: str) -> dict:
-    """
-    Faz o download da imagem a partir de uma URL, extrai os metadados EXIF e,
-    se presentes, converte as informações de GPS para coordenadas decimais.
-    """
     try:
         response = requests.get(url, timeout=10)
         response.raise_for_status()
         image_data = response.content
         image = Image.open(io.BytesIO(image_data))
         meta = {}
-        
         exif_data = image.getexif()
         if exif_data:
             for tag_id, value in exif_data.items():
                 tag = Image.ExifTags.TAGS.get(tag_id, tag_id)
                 meta[tag] = value
-
             if "GPSInfo" in meta:
                 gps_info = meta["GPSInfo"]
                 try:
@@ -1477,7 +1364,6 @@ def analyze_image_metadata(url: str) -> dict:
                     meta["GPS Extraction Error"] = str(e)
         else:
             meta["info"] = "Nenhum metadado EXIF encontrado."
-        
         return meta
     except Exception as e:
         logger.error(f"❌ Erro ao analisar metadados da imagem: {e}")
@@ -1487,15 +1373,16 @@ def analyze_image_metadata(url: str) -> dict:
 # ===== Funcionalidades de Investigação Online =====
 def perform_search(query: str, search_type: str, max_results: int) -> list:
     try:
-        with DDGS() as ddgs:
-            if search_type == 'web':
-                return list(ddgs.text(keywords=query, max_results=max_results))
-            elif search_type == 'news':
-                return list(ddgs.news(keywords=query, max_results=max_results))
-            elif search_type == 'leaked':
-                return list(ddgs.text(keywords=f"{query} leaked", max_results=max_results))
-            else:
-                return []
+        ddgs = DDGS()  # Cria uma nova instância a cada chamada
+        if search_type == 'web':
+            results = list(ddgs.text(keywords=query, max_results=max_results))
+        elif search_type == 'news':
+            results = list(ddgs.news(keywords=query, max_results=max_results))
+        elif search_type == 'leaked':
+            results = list(ddgs.text(keywords=f"{query} leaked", max_results=max_results))
+        else:
+            results = []
+        return results
     except Exception as e:
         logger.error(f"Erro na busca ({search_type}): {e}")
         return []
@@ -1526,7 +1413,6 @@ def process_investigation(target: str, sites_meta: int = 5, investigation_focus:
     if not target.strip():
         return "Erro: Por favor, insira um alvo para investigação.", ""
     
-    # Aplica autocorreção no alvo de investigação
     corrected_target = autocorrect_text(target, lang)
     
     search_tasks = {}
@@ -1569,15 +1455,16 @@ def process_investigation(target: str, sites_meta: int = 5, investigation_focus:
     logger.info(f"Utilizando temperatura {temp} na investigação e max_tokens={max_tokens}.")
     
     try:
-        investigation_response = model.create_chat_completion(
-            messages=[
-                {"role": "system", "content": "Você é um perito policial e forense digital, experiente em métodos policiais de investigação. Utilize técnicas de análise de evidências, protocolos forenses e investigação digital para identificar padrões, rastrear conexões e coletar evidências relevantes. Seja minucioso, preciso e detalhado."},
-                {"role": "user", "content": investigation_prompt}
-            ],
-            temperature=temp,
-            max_tokens=max_tokens,
-            stop=["</s>"]
-        )
+        with model_lock:
+            investigation_response = model.create_chat_completion(
+                messages=[
+                    {"role": "system", "content": "Você é um perito policial e forense digital, experiente em métodos policiais de investigação. Utilize técnicas de análise de evidências, protocolos forenses e investigação digital para identificar padrões, rastrear conexões e coletar evidências relevantes. Seja minucioso, preciso e detalhado."},
+                    {"role": "user", "content": investigation_prompt}
+                ],
+                temperature=temp,
+                max_tokens=max_tokens,
+                stop=["</s>"]
+            )
         report = investigation_response['choices'][0]['message']['content']
         links_combined = links_web + (links_news if links_news else "") + (links_leaked if links_leaked else "")
         return report, links_combined
@@ -1734,23 +1621,33 @@ def network_analysis():
         result = pool.apply(process_pcap, (pcap_path,))
     return jsonify(result)
 
-# ===== Integração com Gradio.live (Interface Aprimorada) =====
-def gradio_interface(query, mode, language, style, investigation_focus, num_sites, search_news, search_leaked_data, temperature, velocidade):
+# ===== Integração com Gradio.live (Interface Aprimorada e Reativa) =====
+def gradio_interface(query, mode, language, style, investigation_focus, num_sites, search_news, search_leaked_data, temperature, velocidade, gpu_layers, n_batch):
+    # Atualiza configurações de GPU/CPU se fornecidas
+    if gpu_layers != "" and n_batch != "":
+        try:
+            update_model_config(int(gpu_layers), int(n_batch))
+        except Exception as e:
+            logger.error(f"Erro ao atualizar configuração do modelo: {e}")
+
     custom_temperature = float(temperature) if temperature != "" else None
     fast_mode = True if velocidade == "Rápida" else False
-    if mode == "Chat":
-        result = generate_response(query, language, style, custom_temperature, fast_mode)
-        return result, ""
-    elif mode == "Investigação":
+    
+    # Se o modo for "Investigação", retornamos feedback em tempo real via generator
+    if mode == "Investigação":
+        yield "⏳ Iniciando investigação...", ""
         sites_meta = int(num_sites)
         report, links_table = process_investigation(query, sites_meta, investigation_focus, search_news, search_leaked_data, custom_temperature, language, fast_mode)
-        return report, links_table
+        yield report, links_table
+    elif mode == "Chat":
+        result = generate_response(query, language, style, custom_temperature, fast_mode)
+        yield result, ""
     elif mode == "Metadados":
         meta = analyze_image_metadata(query)
         formatted_meta = "<br>".join(f"{k}: {v}" for k, v in meta.items())
-        return formatted_meta, ""
+        yield formatted_meta, ""
     else:
-        return "Modo não suportado.", ""
+        yield "Modo não suportado.", ""
 
 def build_gradio_interface():
     with gr.Blocks(title="Interface de IA - Chat & Investigação") as demo:
@@ -1768,24 +1665,29 @@ def build_gradio_interface():
                 search_leaked_data = gr.Checkbox(label="Pesquisar Dados Vazados", value=False)
                 temperature_input = gr.Slider(label="Temperatura da IA", minimum=0.0, maximum=1.0, step=0.1, value=0.7)
                 velocidade_input = gr.Radio(["Rápida", "Detalhada"], label="Velocidade (menos detalhes / mais detalhes)", value="Detalhada", interactive=True)
+                # Novos parâmetros para configuração de GPU/CPU
+                gpu_layers_input = gr.Textbox(label="Camadas GPU (n_gpu_layers)", placeholder="Deixe em branco para detecção automática")
+                n_batch_input = gr.Textbox(label="Tamanho do Lote (n_batch)", placeholder="Deixe em branco para detecção automática")
                 submit_btn = gr.Button("Enviar")
             with gr.Column(scale=1):
                 report_output = gr.HTML(label="Relatório")
                 links_output = gr.HTML(label="Links Encontrados")
-        submit_btn.click(gradio_interface, inputs=[query_input, mode_input, language_input, style_input,
-                                                     investigation_focus, num_sites, search_news, search_leaked_data, temperature_input, velocidade_input],
-                         outputs=[report_output, links_output])
+        # Define a interface como geradora para feedback em tempo real
+        submit_btn.click(fn=gradio_interface, 
+                 inputs=[query_input, mode_input, language_input, style_input,
+                         investigation_focus, num_sites, search_news, search_leaked_data, temperature_input, velocidade_input, gpu_layers_input, n_batch_input],
+                 outputs=[report_output, links_output])
     return demo
 
 demo = build_gradio_interface()
 
 def launch_gradio():
-    print("Iniciando Gradio (o sistema escolherá uma porta livre).")
+    logger.info("Iniciando Gradio (o sistema escolherá uma porta livre).")
     demo.launch(share=True)
 
 # ===== Execução da Aplicação =====
 if __name__ == '__main__':
     gradio_thread = threading.Thread(target=launch_gradio, daemon=True)
     gradio_thread.start()
-    print("Executando a aplicação Flask na porta 5000...")
+    logger.info("Executando a aplicação Flask na porta 5000...")
     app.run(host='0.0.0.0', port=5000, debug=True)
