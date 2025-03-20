@@ -165,7 +165,7 @@
       font-size: 14px;
       transition: border-color 0.3s;
     }
-    /* Opções para investigação */
+    /* Novas opções para investigação */
     #investigationOptions { display: none; }
     /* Sidebar para anotações */
     .sidebar {
@@ -417,100 +417,6 @@
     #toast.show {
       opacity: 1;
     }
-    /* Estilo para Clear Chat Confirmation Modal */
-    #clearChatModal {
-      display: none;
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background: rgba(0, 0, 0, 0.85);
-      justify-content: center;
-      align-items: center;
-      z-index: 1200;
-      animation: fadeInModal 0.5s ease;
-    }
-    #clearChatModal .modal-content {
-      background: #121212;
-      padding: 25px;
-      border-radius: 8px;
-      max-width: 400px;
-      width: 90%;
-      color: #e0e0e0;
-      box-shadow: 0 6px 18px rgba(0,0,0,0.7);
-      animation: slideDown 0.5s ease-out;
-      text-align: center;
-    }
-    #clearChatModal button {
-      padding: 10px 16px;
-      border: none;
-      background-color: #00aaff;
-      color: #fff;
-      border-radius: 4px;
-      cursor: pointer;
-      margin: 10px;
-      transition: background 0.3s, transform 0.2s;
-    }
-    #clearChatModal button:hover {
-      background-color: #0088cc;
-      transform: scale(1.05);
-    }
-    /* Fullscreen chat window */
-    .chat-window.fullscreen {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100vw;
-      height: 100vh;
-      z-index: 1100;
-      border-radius: 0;
-      padding: 40px;
-      transition: all 0.3s ease;
-    }
-    /* Draggable sidebar handle */
-    #sidebarHandle {
-      width: 100%;
-      height: 20px;
-      background: linear-gradient(90deg, #00aaff, #00ffe0);
-      cursor: move;
-      border-top-left-radius: 10px;
-      border-top-right-radius: 10px;
-      margin-bottom: 10px;
-      text-align: center;
-      color: #0a0a0a;
-      font-weight: bold;
-    }
-    /* Estilo para o coelhinho interativo */
-    .rabbit {
-      position: absolute;
-      font-size: 40px;
-      cursor: grab;
-      user-select: none;
-      transition: transform 0.2s, left 0.2s, top 0.2s;
-      z-index: 1150;
-    }
-    .rabbit.dragging {
-      cursor: grabbing;
-      transform: scale(1.1);
-    }
-    @keyframes wiggle {
-      0% { transform: rotate(0deg); }
-      25% { transform: rotate(5deg); }
-      50% { transform: rotate(0deg); }
-      75% { transform: rotate(-5deg); }
-      100% { transform: rotate(0deg); }
-    }
-    .rabbit:hover {
-      animation: wiggle 0.5s;
-    }
-    /* Estilo para a cenoura */
-    .carrot {
-      position: absolute;
-      font-size: 40px;
-      user-select: none;
-      z-index: 1140;
-    }
   </style>
 </head>
 <body>
@@ -563,6 +469,11 @@
             <label>
               <input type="checkbox" id="streaming" name="streaming"> Ativar Streaming
             </label>
+            <!-- Novos campos para configuração de GPU/CPU -->
+            <label for="gpu_layers">Camadas GPU:</label>
+            <input type="number" id="gpu_layers" name="gpu_layers" placeholder="Automático">
+            <label for="n_batch">Tamanho do Lote:</label>
+            <input type="number" id="n_batch" name="n_batch" placeholder="Automático">
           </div>
           <!-- Opções adicionais para investigação -->
           <div class="form-options" id="investigationOptions">
@@ -731,7 +642,7 @@
       document.getElementById("loadingSpinner").style.display = "none";
     }
     
-    // Envio do formulário de chat
+    // Envio do formulário de chat com suporte a streaming e novos parâmetros de GPU/CPU
     document.getElementById("chatForm").addEventListener("submit", function(e) {
       e.preventDefault();
       const inputField = document.getElementById("chatInput");
@@ -751,6 +662,8 @@
       formData.append('investigation_focus', document.getElementById("investigation_focus").value);
       formData.append('search_news', document.getElementById("search_news").checked);
       formData.append('search_leaked_data', document.getElementById("search_leaked_data").checked);
+      formData.append('gpu_layers', document.getElementById("gpu_layers").value);
+      formData.append('n_batch', document.getElementById("n_batch").value);
       
       const streaming = document.getElementById("streaming").checked;
       showSpinner();
@@ -1017,7 +930,6 @@
       
       // Intervalo para spawn de cenoura a cada 10 minutos (600000 ms)
       setInterval(spawnCarrot, 600000);
-      // Para testes, você pode reduzir esse tempo.
       
       // Loop de animação para o coelhinho
       function animateRabbit() {
