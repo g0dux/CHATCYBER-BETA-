@@ -1081,7 +1081,6 @@ COMPILED_REGEX_PATTERNS = {
     'phone': re.compile(r'\+?\d[\d\s()-]{7,}\d'),
     'url': re.compile(r'https?://(?:[-\w.]|(?:%[\da-fA-F]{2}))+'),
     'mac': re.compile(r'\b(?:[0-9A-Fa-f]{2}[:-]){5}(?:[0-9A-Fa-f]{2})\b'),
-    # ... outros padrões conforme necessário ...
     'domain': re.compile(r'\b(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}\b')
 }
 
@@ -1373,15 +1372,18 @@ def analyze_image_metadata(url: str) -> dict:
 # ===== Funcionalidades de Investigação Online =====
 def perform_search(query: str, search_type: str, max_results: int) -> list:
     try:
-        ddgs = DDGS()  # Cria uma nova instância a cada chamada
-        if search_type == 'web':
-            results = list(ddgs.text(keywords=query, max_results=max_results))
-        elif search_type == 'news':
-            results = list(ddgs.news(keywords=query, max_results=max_results))
-        elif search_type == 'leaked':
-            results = list(ddgs.text(keywords=f"{query} leaked", max_results=max_results))
-        else:
-            results = []
+        # Utiliza o gerenciador de contexto para garantir que a sessão seja finalizada corretamente
+        with DDGS() as ddgs:
+            if search_type == 'web':
+                results = list(ddgs.text(keywords=query, max_results=max_results))
+            elif search_type == 'news':
+                results = list(ddgs.news(keywords=query, max_results=max_results))
+            elif search_type == 'leaked':
+                results = list(ddgs.text(keywords=f"{query} leaked", max_results=max_results))
+            else:
+                results = []
+        # Pequeno delay para evitar possíveis rate limits
+        time.sleep(1)
         return results
     except Exception as e:
         logger.error(f"Erro na busca ({search_type}): {e}")
